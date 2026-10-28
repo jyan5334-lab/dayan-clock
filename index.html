@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'">
+  <title>DAYAN时钟</title>
+  <link rel="stylesheet" href="renderer/timer.css">
+  <link rel="stylesheet" href="renderer/desktop.css">
+  <script defer src="renderer/lucide.min.js"></script>
+  <script defer src="renderer/backgrounds.js"></script>
+  <script defer src="renderer/lunar.js"></script>
+  <script defer src="renderer/almanac.js"></script>
+  <script defer src="renderer/desktop.js"></script>
+</head>
+<body>
+  <main id="desktop-stage">
+    <div class="titlebar">
+      <div class="drag-area"><img src="assets/icon.png" alt=""><span>DAYAN时钟</span></div>
+      <div class="window-tools">
+        <button id="style-toggle" type="button" aria-label="选择样式" title="选择样式" aria-expanded="false"><i data-lucide="palette"></i></button>
+        <button id="settings-toggle" type="button" aria-label="设置" title="设置" aria-haspopup="dialog"><i data-lucide="settings"></i><span>设置</span><span class="settings-dot" aria-hidden="true"></span></button>
+        <button id="pin" type="button" aria-label="置顶" title="置顶" aria-pressed="false"><i data-lucide="pin"></i></button>
+        <button id="fullscreen" type="button" aria-label="全屏" title="全屏" aria-pressed="false"><i data-lucide="maximize"></i></button>
+        <button id="lock" type="button" aria-label="设置锁屏密码" title="设置锁屏密码"><i data-lucide="lock"></i></button>
+        <button id="minimize" type="button" aria-label="最小化" title="最小化"><i data-lucide="minus"></i></button>
+        <button id="close" type="button" aria-label="关闭" title="关闭"><i data-lucide="x"></i></button>
+      </div>
+    </div>
+    <div id="simple-timers" aria-label="DAYAN时钟">
+      <section data-variant="霓虹矩阵" hidden></section>
+      <section data-variant="液态铬金"></section>
+      <section data-variant="机械黑曜" hidden></section>
+      <section data-variant="量子光环" hidden></section>
+      <section data-variant="赛博终端" hidden></section>
+    </div>
+    <div id="style-menu" role="group" aria-label="显示样式" hidden>
+      <button type="button" data-style="0"><i data-lucide="circuit-board"></i><span>霓虹矩阵</span></button>
+      <button type="button" data-style="1"><i data-lucide="zap"></i><span>液态铬金</span></button>
+      <button type="button" data-style="2"><i data-lucide="panels-top-left"></i><span>机械黑曜</span></button>
+      <button type="button" data-style="3"><i data-lucide="orbit"></i><span>量子光环</span></button>
+      <button type="button" data-style="4"><i data-lucide="terminal"></i><span>赛博终端</span></button>
+    </div>
+  </main>
+  <div id="lock-screen" hidden aria-live="polite">
+    <div id="unlock-panel" class="security-panel" hidden>
+      <div class="security-panel-icon"><i data-lucide="lock-keyhole"></i></div>
+      <strong>DAYAN时钟已锁定</strong>
+      <form id="unlock-form">
+        <label class="sr-only" for="unlock-password">锁屏密码</label>
+        <input id="unlock-password" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="current-password" placeholder="输入数字密码" maxlength="16">
+        <button type="submit">解锁</button>
+      </form>
+      <p id="unlock-error" class="security-error" role="alert" hidden></p>
+    </div>
+  </div>
+  <div id="security-modal" hidden role="dialog" aria-modal="true" aria-labelledby="security-title">
+    <div class="security-panel">
+      <button id="security-close" class="security-close" type="button" aria-label="关闭"><i data-lucide="x"></i></button>
+      <div class="security-panel-icon"><i data-lucide="shield-check"></i></div>
+      <strong id="security-title">设置锁屏密码</strong>
+      <p id="security-hint">锁屏后只保留密码解锁入口。</p>
+      <button id="security-open-settings" class="policy-link" type="button"><i data-lucide="settings"></i><span>Windows 锁屏保护设置</span><i data-lucide="chevron-right"></i></button>
+      <form id="security-form">
+        <label id="current-password-label" hidden for="current-password">当前密码</label>
+        <input id="current-password" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="current-password" placeholder="当前数字密码" maxlength="16" hidden>
+        <label class="sr-only" for="new-password">新密码</label>
+        <input id="new-password" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="new-password" placeholder="设置 4 至 16 位数字密码" maxlength="16" required>
+        <label class="sr-only" for="confirm-password">确认密码</label>
+        <input id="confirm-password" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="new-password" placeholder="再次输入数字密码" maxlength="16" required>
+        <button type="submit">保存密码</button>
+      </form>
+      <p id="security-error" class="security-error" role="alert" hidden></p>
+    </div>
+  </div>
+  <div id="settings-modal" hidden role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="settings-panel">
+      <header class="settings-header"><h2 id="settings-title">设置</h2><button id="settings-close" class="settings-icon" type="button" aria-label="关闭设置" title="关闭设置"><i data-lucide="x"></i></button></header>
+      <div class="settings-body">
+        <div class="settings-heading"><strong>系统自检</strong><button id="policy-refresh" class="settings-icon" type="button" aria-label="重新检测" title="重新检测"><i data-lucide="refresh-cw"></i></button></div>
+        <dl class="system-details">
+          <div><dt>Windows 版本</dt><dd id="system-version">检测中…</dd></div>
+          <div><dt>系统架构</dt><dd id="system-architecture">检测中…</dd></div>
+          <div><dt>软件版本</dt><dd id="system-app-version">—</dd></div>
+          <div><dt>检测时间</dt><dd id="system-checked-at">检测中…</dd></div>
+        </dl>
+        <div class="policy-guide-head"><strong>Windows 锁屏保护</strong><span id="policy-status" data-state="checking" role="status">检测中</span></div>
+        <p id="policy-description">正在检查当前 Windows 用户的系统策略。</p>
+        <ul class="policy-details" aria-label="锁屏策略检测结果">
+          <li><span>任务管理器限制</span><span data-policy="DisableTaskMgr">检测中</span></li>
+          <li><span>系统锁定入口限制</span><span data-policy="DisableLockWorkstation">检测中</span></li>
+          <li><span>修改密码入口限制</span><span data-policy="DisableChangePassword">检测中</span></li>
+          <li><span>Windows 常用快捷键限制</span><span data-policy="NoWinKeys">检测中</span></li>
+          <li><span>注销入口限制</span><span data-policy="NoLogoff">检测中</span></li>
+        </ul>
+        <p class="policy-notice">此操作将持续限制当前 Windows 用户的上述系统入口，时钟解锁后仍保留。可通过“恢复原有策略”撤销。Ctrl+Alt+Delete 安全界面仍由 Windows 管理。</p>
+        <p id="policy-error" class="security-error" role="alert" hidden></p>
+      </div>
+      <footer class="settings-footer">
+        <p id="policy-support">一键授权适配范围：Windows 10 / Windows 11（x64），需管理员批准且系统策略允许。其他版本和架构暂未验证。</p>
+        <p class="policy-permission-note">授权将持续限制当前用户的系统入口，时钟解锁后仍保留，可在此恢复。</p>
+        <button id="policy-enable" class="policy-enable" type="button" disabled><i data-lucide="shield-check"></i><span>一键引导授权</span></button>
+        <button id="policy-restore" class="policy-secondary" type="button" disabled><i data-lucide="undo-2"></i><span>恢复原有策略</span></button>
+        <button id="settings-password" class="policy-secondary" type="button"><i data-lucide="key-round"></i><span>设置锁屏密码</span></button>
+      </footer>
+    </div>
+  </div>
+  <div class="resize-corner top-left" data-corner="top-left" aria-hidden="true"></div>
+  <div class="resize-corner top-right" data-corner="top-right" aria-hidden="true"></div>
+  <div class="resize-corner bottom-left" data-corner="bottom-left" aria-hidden="true"></div>
+  <div class="resize-corner bottom-right" data-corner="bottom-right" aria-hidden="true"></div>
+</body>
+</html>

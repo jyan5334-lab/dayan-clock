@@ -1,0 +1,86 @@
+{
+  "name": "dayan-clock",
+  "version": "1.3.1",
+  "description": "DAYAN Clock - local desktop clock, stopwatch and timer",
+  "author": "DAYAN",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "check": "node tools/check-source.cjs",
+    "start": "electron .",
+    "pack:win": "electron-builder --win --x64 --dir",
+    "dist:win": "node desktop/build-windows.cjs",
+    "dist:mac": "electron-builder --mac --arm64 --x64"
+  },
+  "devDependencies": {
+    "electron": "45.0.0",
+    "electron-builder": "26.18.0",
+    "lucide": "0.468.0"
+  },
+  "build": {
+    "appId": "com.dayan.clock",
+    "productName": "DAYAN时钟",
+    "executableName": "DAYANClock",
+    "asar": true,
+    "compression": "maximum",
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "index.html",
+      "renderer/**/*",
+      "desktop/main.cjs",
+      "desktop/preload.cjs",
+      "desktop/window-geometry.cjs",
+      "assets/**/*",
+      "README.md",
+      "CHANGELOG.md",
+      "THIRD_PARTY_NOTICES.md",
+      "docs/user-guide.md",
+      "docs/windows-kiosk.md",
+      "scripts/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "artifactName": "DAYANClock-Setup-${version}-${arch}.${ext}",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "DAYAN时钟",
+      "installerLanguages": [
+        "zh_CN",
+        "en_US"
+      ],
+      "displayLanguageSelector": false,
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.utilities",
+      "icon": "assets/icon.png",
+      "artifactName": "DAYANClock-${version}-${arch}.${ext}",
+      "hardenedRuntime": true
+    }
+  }
+}

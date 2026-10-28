@@ -1,0 +1,17 @@
+node_modules/
+release/
+work/
+coverage/
+test-results/
+playwright-report/
+.DS_Store
+*.log
+.env*
+preferences.json
+windows-lockdown-backup.json
+*.pem
+*.key
+*.pfx
+*.p12
+*.cer
+*.tmp
