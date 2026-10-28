@@ -91,7 +91,7 @@
       <header class="settings-header"><h2 id="settings-title">设置</h2><button id="settings-close" class="settings-icon" type="button" aria-label="关闭设置" title="关闭设置"><i data-lucide="x"></i></button></header>
       <nav class="settings-tabs" role="tablist" aria-label="设置菜单">
         <button type="button" role="tab" aria-selected="true" aria-controls="settings-policy" data-settings-tab="policy"><i data-lucide="shield-check"></i><span>一键授权</span></button>
-        <button type="button" role="tab" aria-selected="false" aria-controls="settings-almanac" data-settings-tab="almanac"><i data-lucide="calendar-days"></i><span>老黄历</span></button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="settings-almanac" data-settings-tab="almanac"><i data-lucide="sliders-horizontal"></i><span>显示设置</span></button>
         <button type="button" role="tab" aria-selected="false" aria-controls="settings-autostart" data-settings-tab="autostart"><i data-lucide="power"></i><span>开机自启动</span></button>
         <button type="button" role="tab" aria-selected="false" aria-controls="settings-about" data-settings-tab="about"><i data-lucide="info"></i><span>关于我们</span></button>
         <button type="button" role="tab" aria-selected="false" aria-controls="settings-layers" data-settings-tab="layers"><i data-lucide="layers-3"></i><span>窗口层级</span></button>
@@ -118,9 +118,9 @@
           <p id="policy-error" class="security-error" role="alert" hidden></p>
         </section>
         <section id="settings-almanac" class="settings-section" data-settings-panel="almanac" role="tabpanel" hidden>
-          <div class="settings-heading"><strong>老黄历显示</strong></div>
-          <p>控制时钟页面中的老黄历内容和右上角模式文字显示。</p>
-          <label class="setting-check"><input id="show-almanac" type="checkbox"><span>显示老黄历内容</span></label>
+          <div class="settings-heading"><strong>显示设置</strong></div>
+          <p>控制时钟页面中的日期信息、黄历内容和右上角模式文字显示。</p>
+          <label class="setting-check"><input id="show-almanac" type="checkbox"><span>显示黄历内容</span></label>
           <div class="settings-subheading">右上角模式文字</div>
           <label class="setting-check"><input type="checkbox" data-mode-visibility="clock"><span>显示“时钟”</span><small>默认关闭，时钟仍默认进入</small></label>
           <label class="setting-check"><input type="checkbox" data-mode-visibility="watch"><span>显示“秒表”</span></label>

@@ -14,7 +14,7 @@ const PASSWORD_ITERATIONS = 210000;
 const UPDATE_REPOSITORY_API = 'https://api.github.com/repos/jyan5334-lab/dayan-clock/releases/latest';
 const DEFAULT_DISPLAY_SETTINGS = Object.freeze({ showAlmanac: true, modes: Object.freeze({ clock: false, watch: true, down: true, up: true }) });
 let mainWindow, state = {}, resizeSession, saveTimer, securityLocked = false, quitting = false;
-let windowedBounds, presentationRequested = false, restoringBounds = false, restoreBoundsTimer;
+let windowedBounds, presentationRequested = false, restoringBounds = false, restoreBoundsTimer, desktopWindowHosted = false;
 let updateInfo = null, updateBusy = false, updateCheckPromise;
 const stateFile = () => path.join(app.getPath('userData'), 'preferences.json');
 const lockdownScript = () => path.join(__dirname, '../scripts/enable-dayan-lockdown.ps1');
@@ -472,6 +472,7 @@ function queueWindowedRestore() {
 function leavePresentation() {
   presentationRequested = false;
   restoringBounds = true;
+  if (desktopWindowHosted) { desktopWindowHosted = false; setDesktopWindowMode(false, screen.getDisplayMatching(mainWindow.getBounds())); }
   mainWindow.setKiosk(false);
   mainWindow.setFullScreen(false);
   queueWindowedRestore();
@@ -482,23 +483,52 @@ function fullscreenLayer() {
   return layers[securityLocked ? 'locked' : 'unlocked'];
 }
 
-function sendWindowToBottom() {
+function setDesktopWindowMode(hosted, display) {
   if (process.platform !== 'win32' || !mainWindow || mainWindow.isDestroyed()) return;
   const handle = mainWindow.getNativeWindowHandle();
   const pointer = handle.length >= 8 ? handle.readBigUInt64LE(0).toString() : String(handle.readUInt32LE(0));
+  const bounds = display?.bounds || mainWindow.getBounds();
   const source = [
     "Add-Type @'",
     'using System;',
     'using System.Runtime.InteropServices;',
-    'public static class DayanNativeWindowOrder {',
-    '  [DllImport("user32.dll")]',
-    '  public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);',
+    'public static class DayanDesktopWindow {',
+    '  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint flags);',
+    '  [DllImport("user32.dll")] public static extern IntPtr SetParent(IntPtr child, IntPtr parent);',
+    '  [DllImport("user32.dll")] public static extern IntPtr FindWindow(string cls, string title);',
+    '  [DllImport("user32.dll")] public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);',
+    '  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc callback, IntPtr extra);',
+    '  public delegate bool EnumProc(IntPtr hWnd, IntPtr extra);',
+    '  [DllImport("user32.dll")] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);',
+    '  [DllImport("user32.dll", EntryPoint="GetWindowLongPtrW")] public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);',
+    '  [DllImport("user32.dll", EntryPoint="SetWindowLongPtrW")] public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int index, IntPtr value);',
+    '  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }',
+    '  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);',
     '}',
     "'@",
-    '[DayanNativeWindowOrder]::SetWindowPos([IntPtr]' + pointer + ', [IntPtr]1, 0, 0, 0, 0, 0x53) | Out-Null'
+    '$hwnd = [IntPtr]' + pointer,
+    '$GWL_STYLE = -16; $WS_CHILD = [Int64]0x40000000; $WS_POPUP = [Int64]0x80000000; $SWP_NOACTIVATE = 0x10; $SWP_SHOWWINDOW = 0x40;',
+    `if (${hosted ? '$true' : '$false'}) {`,
+    '  $progman = [DayanDesktopWindow]::FindWindow("Progman", "Program Manager"); $result = [IntPtr]::Zero;',
+    '  if ($progman -ne [IntPtr]::Zero) { [DayanDesktopWindow]::SendMessageTimeout($progman, 0x052C, [IntPtr]::Zero, [IntPtr]::Zero, 0, 1000, [ref]$result) | Out-Null }',
+    '  $script:dayanWorker = [IntPtr]::Zero;',
+    '  $callback = [DayanDesktopWindow+EnumProc]{ param($window, $extra); $defView = [DayanDesktopWindow]::FindWindowEx($window, [IntPtr]::Zero, "SHELLDLL_DefView", $null); if ($defView -ne [IntPtr]::Zero) { $script:dayanWorker = [DayanDesktopWindow]::FindWindowEx([IntPtr]::Zero, $window, "WorkerW", $null) }; return $true };',
+    '[DayanDesktopWindow]::EnumWindows($callback, [IntPtr]::Zero) | Out-Null; $worker = $script:dayanWorker;',
+    '  if ($worker -eq [IntPtr]::Zero) { exit 2 }',
+    '  $style = [DayanDesktopWindow]::GetWindowLongPtr($hwnd, $GWL_STYLE).ToInt64(); $style = ($style -bor $WS_CHILD) -band (-bnot $WS_POPUP); [DayanDesktopWindow]::SetWindowLongPtr($hwnd, $GWL_STYLE, [IntPtr]$style) | Out-Null;',
+    '  [DayanDesktopWindow]::SetParent($hwnd, $worker) | Out-Null;',
+    `  $rect = New-Object DayanDesktopWindow+RECT; [DayanDesktopWindow]::GetWindowRect($worker, [ref]$rect) | Out-Null; $x = ${Number(bounds.x)} - $rect.Left; $y = ${Number(bounds.y)} - $rect.Top;`,
+    `  [DayanDesktopWindow]::SetWindowPos($hwnd, [IntPtr]::Zero, $x, $y, ${Number(bounds.width)}, ${Number(bounds.height)}, ($SWP_NOACTIVATE -bor $SWP_SHOWWINDOW)) | Out-Null;`,
+    '} else {',
+    '  [DayanDesktopWindow]::SetParent($hwnd, [IntPtr]::Zero) | Out-Null; $style = [DayanDesktopWindow]::GetWindowLongPtr($hwnd, $GWL_STYLE).ToInt64(); $style = ($style -bor $WS_POPUP) -band (-bnot $WS_CHILD); [DayanDesktopWindow]::SetWindowLongPtr($hwnd, $GWL_STYLE, [IntPtr]$style) | Out-Null;',
+    '  [DayanDesktopWindow]::SetWindowPos($hwnd, [IntPtr]::Zero, 0, 0, 0, 0, $SWP_NOACTIVATE) | Out-Null;',
+    '}'
   ].join('\n');
   const encoded = Buffer.from(source, 'utf16le').toString('base64');
-  spawnSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { windowsHide: true, timeout: 3000, stdio: 'ignore' });
+  try {
+    const child = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { detached: true, windowsHide: true, stdio: 'ignore' });
+    child.unref();
+  } catch (error) { console.error('Unable to apply desktop window mode:', error.message); }
 }
 
 function applyPresentationWindow() {
@@ -509,8 +539,9 @@ function applyPresentationWindow() {
     mainWindow.setFullScreen(false);
     mainWindow.setBounds(display.bounds, false);
     mainWindow.setAlwaysOnTop(false);
-    sendWindowToBottom();
+    if (!desktopWindowHosted) { desktopWindowHosted = true; setDesktopWindowMode(true, display); }
   } else {
+    if (desktopWindowHosted) { desktopWindowHosted = false; setDesktopWindowMode(false, display); }
     mainWindow.setBounds(display.bounds, false);
     mainWindow.setKiosk(securityLocked);
     mainWindow.setFullScreen(true);
@@ -523,12 +554,13 @@ function restorePinnedState() {
   if (isPresentationFullscreen()) {
     if (fullscreenLayer() === 'bottom') {
       mainWindow.setAlwaysOnTop(false);
-      sendWindowToBottom();
+      if (!desktopWindowHosted) { desktopWindowHosted = true; setDesktopWindowMode(true, screen.getDisplayMatching(mainWindow.getBounds())); }
     } else {
       mainWindow.setAlwaysOnTop(true, securityLocked ? 'screen-saver' : 'floating');
     }
     return;
   }
+  if (desktopWindowHosted) { desktopWindowHosted = false; setDesktopWindowMode(false, screen.getDisplayMatching(mainWindow.getBounds())); }
   if (securityLocked) mainWindow.setAlwaysOnTop(true, 'screen-saver');
   else mainWindow.setAlwaysOnTop(state.pinned === true);
 }
