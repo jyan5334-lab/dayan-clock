@@ -62,10 +62,79 @@ function normalizeUpdatePayload(payload) {
     const version = String(payload.tag_name || payload.name).replace(/^v/i, '');
     const asset = Array.isArray(payload.assets) ? payload.assets.find(item => item.name === `DAYANClock-Setup-${version}-x64.exe`) : null;
     if (!asset?.browser_download_url) return null;
-    return { version, title: payload.name || `DAYAN桌面 ${version}`, notes: String(payload.body || '').trim(), publishedAt: payload.published_at || payload.created_at || '', downloadUrl: asset.browser_download_url, sha256: typeof asset.digest === 'string' ? asset.digest.replace(/^sha256:/i, '') : '', size: Number(asset.size) || 0, releaseUrl: payload.html_url || '' };
+    return { version, title: payload.name || `DAYAN桌面 ${version}`, notes: String(payload.body || '').trim(), publishedAt: payload.published_at || payload.created_at || '', downloadUrl: asset.browser_download_url, assetApiUrl: asset.url || '', mirrorUrls: [], sha256: typeof asset.digest === 'string' ? asset.digest.replace(/^sha256:/i, '') : '', size: Number(asset.size) || 0, releaseUrl: payload.html_url || '' };
   }
-  if (payload?.version && payload?.downloadUrl) return { version: String(payload.version).replace(/^v/i, ''), title: payload.title || `DAYAN桌面 ${payload.version}`, notes: String(payload.notes || '').trim(), publishedAt: payload.publishedAt || '', downloadUrl: String(payload.downloadUrl), sha256: String(payload.sha256 || '').replace(/^sha256:/i, ''), size: Number(payload.size) || 0, releaseUrl: String(payload.releaseUrl || '') };
+  if (payload?.version && payload?.downloadUrl) {
+    const mirrors = Array.isArray(payload.mirrorUrls) ? payload.mirrorUrls.filter(value => typeof value === 'string' && value.trim()) : [];
+    return { version: String(payload.version).replace(/^v/i, ''), title: payload.title || `DAYAN桌面 ${payload.version}`, notes: String(payload.notes || '').trim(), publishedAt: payload.publishedAt || '', downloadUrl: String(payload.downloadUrl), assetApiUrl: String(payload.assetApiUrl || ''), mirrorUrls: mirrors, sha256: String(payload.sha256 || '').replace(/^sha256:/i, ''), size: Number(payload.size) || 0, releaseUrl: String(payload.releaseUrl || '') };
+  }
   return null;
+}
+
+function sendUpdateProgress(progress) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dayan:update-progress', progress);
+}
+
+function describeUpdateError(error) {
+  const code = error?.cause?.code || '';
+  const message = String(error?.message || '');
+  if (error?.name === 'TimeoutError' || error?.name === 'AbortError' || /timed out|timeout/i.test(message)) {
+    return '连接更新服务器超时。请检查网络后重试；如果仍然失败，请配置可访问的镜像更新源。';
+  }
+  if (message === 'fetch failed' || ['ECONNRESET', 'ETIMEDOUT', 'ENETUNREACH', 'EAI_AGAIN', 'ENOTFOUND'].includes(code)) {
+    return '无法连接更新下载服务器。中国网络下 GitHub Release 下载可能被限速或中断，请稍后重试，或配置可访问的镜像更新源。';
+  }
+  return message || '更新下载失败，请稍后重试';
+}
+
+function updateDownloadUrls(update) {
+  return [...new Set([update.assetApiUrl, ...(update.mirrorUrls || []), update.downloadUrl].filter(value => typeof value === 'string' && value.trim()))];
+}
+
+async function downloadUpdateFile(update, installerPath) {
+  let lastError = null;
+  const urls = updateDownloadUrls(update);
+  for (let index = 0; index < urls.length; index++) {
+    const url = urls[index];
+    sendUpdateProgress({ received: 0, total: update.size || 0, percent: 0, status: index ? '正在切换备用下载地址…' : '正在连接下载服务器…' });
+    let reader;
+    let writer;
+    try {
+      const response = await fetch(url, { headers: { ...updateHeaders(), Accept: 'application/octet-stream' }, redirect: 'follow', signal: AbortSignal.timeout(30000) });
+      if (!response.ok || !response.body) throw new Error(`更新下载失败（HTTP ${response.status}）`);
+      writer = fs.createWriteStream(installerPath);
+      reader = response.body.getReader();
+      const hash = crypto.createHash('sha256');
+      let received = 0;
+      const total = Number(response.headers.get('content-length')) || update.size || 0;
+      sendUpdateProgress({ received, total, percent: 0, status: '已连接，正在下载更新…' });
+      const write = chunk => new Promise((resolve, reject) => {
+        if (writer.write(chunk, error => error ? reject(error) : resolve())) return;
+        writer.once('drain', resolve);
+      });
+      const readWithTimeout = () => new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(Object.assign(new Error('下载数据接收超时'), { name: 'TimeoutError' })), 30000);
+        reader.read().then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
+      });
+      while (true) {
+        const next = await readWithTimeout();
+        if (next.done) break;
+        const chunk = Buffer.from(next.value);
+        hash.update(chunk); received += chunk.length;
+        await write(chunk);
+        sendUpdateProgress({ received, total, percent: total ? Math.min(100, received / total * 100) : 0, status: '正在下载更新…' });
+      }
+      await new Promise((resolve, reject) => writer.end(error => error ? reject(error) : resolve()));
+      return { actualHash: hash.digest('hex'), received, total };
+    } catch (error) {
+      lastError = error;
+      console.error('Update download candidate failed:', url, error);
+      try { await reader?.cancel(); } catch {}
+      try { writer?.destroy(); } catch {}
+      try { fs.rmSync(installerPath, { force: true }); } catch {}
+    }
+  }
+  throw lastError || new Error('没有可用的更新下载地址');
 }
 
 async function checkForUpdates({ notifyRenderer = true } = {}) {
@@ -95,27 +164,7 @@ async function downloadAndInstallUpdate() {
   const installerPath = path.join(tempDir, `DAYANClock-Setup-${update.version}-x64.exe`);
   try {
     fs.mkdirSync(tempDir, { recursive: true });
-    const response = await fetch(update.downloadUrl, { headers: updateHeaders(), redirect: 'follow', signal: AbortSignal.timeout(600000) });
-    if (!response.ok || !response.body) throw new Error(`更新下载失败（HTTP ${response.status}）`);
-    const writer = fs.createWriteStream(installerPath);
-    const reader = response.body.getReader();
-    const hash = crypto.createHash('sha256');
-    let received = 0;
-    const total = Number(response.headers.get('content-length')) || update.size || 0;
-    const write = chunk => new Promise((resolve, reject) => {
-      if (writer.write(chunk, error => error ? reject(error) : resolve())) return;
-      writer.once('drain', resolve);
-    });
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      const chunk = Buffer.from(next.value);
-      hash.update(chunk); received += chunk.length;
-      await write(chunk);
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dayan:update-progress', { received, total, percent: total ? Math.min(100, received / total * 100) : 0 });
-    }
-    await new Promise((resolve, reject) => writer.end(error => error ? reject(error) : resolve()));
-    const actualHash = hash.digest('hex');
+    const { actualHash } = await downloadUpdateFile(update, installerPath);
     if (update.sha256 && actualHash.toLowerCase() !== update.sha256.toLowerCase()) throw new Error('更新文件校验失败，未执行安装');
     if (process.platform !== 'win32') return { ok: false, error: '当前更新安装器仅支持 Windows' };
     const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe');
@@ -129,8 +178,9 @@ async function downloadAndInstallUpdate() {
     return { ok: true };
   } catch (error) {
     try { fs.rmSync(installerPath, { force: true }); } catch {}
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dayan:update-error', { message: error.message || '更新安装失败' });
-    return { ok: false, error: error.message || '更新安装失败' };
+    const message = describeUpdateError(error);
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dayan:update-error', { message });
+    return { ok: false, error: message };
   } finally { updateBusy = false; }
 }
 

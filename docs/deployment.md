@@ -10,11 +10,11 @@
 
 ## 安装包校验
 
-同一 Release 下载 `SHA256SUMS-1.6.0.txt` 与安装包，在下载目录运行：
+同一 Release 下载 `SHA256SUMS-1.6.1.txt` 与安装包，在下载目录运行：
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\DAYANClock-Setup-1.6.0-x64.exe
-Get-FileHash -Algorithm SHA256 .\DAYANClock-Source-1.6.0.zip
+Get-FileHash -Algorithm SHA256 .\DAYANClock-Setup-1.6.1-x64.exe
+Get-FileHash -Algorithm SHA256 .\DAYANClock-Source-1.6.1.zip
 ```
 
 将输出与校验文件逐项比较。安装包暂未签名，可能出现未知发布者提示；校验值用于确认文件与该版本资产一致，不代替代码签名。
@@ -65,6 +65,6 @@ npm run dist:mac
 
 ## 自动更新
 
-启动时由 Electron 主进程检查 GitHub Release 或自定义 JSON 更新清单。Release 数据需包含 `tag_name`、匹配版本的 `DAYANClock-Setup-<版本>-x64.exe` 资产和可选的 SHA-256 摘要；自定义清单格式为 `{"version":"1.5.1","downloadUrl":"https://.../DAYANClock-Setup-1.5.1-x64.exe","sha256":"...","notes":"..."}`。发现更高版本后，程序只显示“确定更新”，下载、校验并重启安装。
+启动时由 Electron 主进程检查 GitHub Release 或自定义 JSON 更新清单。Release 数据需包含 `tag_name`、匹配版本的 `DAYANClock-Setup-<版本>-x64.exe` 资产和可选的 SHA-256 摘要；程序会优先使用 GitHub 资产 API 地址，并在失败时尝试备用地址。自定义清单格式为 `{"version":"1.5.1","downloadUrl":"https://.../DAYANClock-Setup-1.5.1-x64.exe","mirrorUrls":["https://国内镜像/..."],"sha256":"...","notes":"..."}`。发现更高版本后，程序只显示“确定更新”，下载、校验并重启安装。
 
-当前仓库为 Public，普通安装包可以匿名访问 GitHub API 和 Release 资产，默认自动更新可直接使用。若部署到自有镜像或需要权限控制的渠道，可将 `DAYAN_UPDATE_MANIFEST_URL` 指向更新清单和下载代理；不要把 GitHub Token 编译进客户端。`DAYAN_GITHUB_TOKEN` 只适合受控的内部部署环境。
+当前仓库为 Public，普通安装包可以匿名访问 GitHub API 和 Release 资产，默认自动更新可直接使用。中国网络环境下，如果 GitHub Release 下载域名连接不稳定，建议把安装包同步到可访问的对象存储或 CDN，并在更新清单的 `mirrorUrls` 中填写地址；程序会在 GitHub 地址失败后自动切换。若部署到自有镜像或需要权限控制的渠道，可将 `DAYAN_UPDATE_MANIFEST_URL` 指向更新清单和下载代理；不要把 GitHub Token 编译进客户端。`DAYAN_GITHUB_TOKEN` 只适合受控的内部部署环境。

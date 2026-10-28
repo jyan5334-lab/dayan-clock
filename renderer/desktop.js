@@ -78,7 +78,7 @@
   const closeMenu = () => { menu.hidden = true; styleToggle.setAttribute('aria-expanded', 'false'); };
   const revealChrome = event => {
     if (document.documentElement.dataset.fullscreen !== 'true') return;
-    if (event.clientY > 84) return;
+    if ((event?.clientY ?? 0) > 84) return;
     document.documentElement.classList.add('chrome-visible');
     clearTimeout(chromeTimer);
     chromeTimer = setTimeout(() => { document.documentElement.classList.remove('chrome-visible'); closeMenu(); }, 1800);
@@ -350,7 +350,7 @@
   bridge.onUpdateProgress(progress => {
     updateProgressWrap.hidden = false;
     updateProgressBar.style.width = `${Math.round(progress.percent || 0)}%`;
-    updateProgressText.textContent = progress.total ? `正在下载 ${Math.round(progress.percent)}%` : '正在下载更新…';
+    updateProgressText.textContent = progress.status || (progress.total ? `正在下载 ${Math.round(progress.percent)}%` : '正在下载更新…');
   });
   bridge.onUpdateError(error => {
     updateError.textContent = error?.message || '更新失败，请稍后重试';
