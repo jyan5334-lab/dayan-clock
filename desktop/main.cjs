@@ -91,46 +91,148 @@ function updateDownloadUrls(update) {
   return [...new Set([update.assetApiUrl, ...(update.mirrorUrls || []), update.downloadUrl].filter(value => typeof value === 'string' && value.trim()))];
 }
 
+const UPDATE_CHUNK_SIZE = 2 * 1024 * 1024;
+const UPDATE_PARALLELISM = 4;
+const UPDATE_CHUNK_RETRIES = 2;
+const UPDATE_RANGE_PROBE_TIMEOUT = 8000;
+
+function readWithTimeout(reader, timeout = 30000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(Object.assign(new Error('下载数据接收超时'), { name: 'TimeoutError' })), timeout);
+    reader.read().then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
+  });
+}
+
+async function hashFile(filename) {
+  const hash = crypto.createHash('sha256');
+  for await (const chunk of fs.createReadStream(filename)) hash.update(chunk);
+  return hash.digest('hex');
+}
+
+async function streamUpdateResponse(response, update, installerPath) {
+  if (!response.ok || !response.body) throw new Error(`更新下载失败（HTTP ${response.status}）`);
+  const writer = fs.createWriteStream(installerPath);
+  const reader = response.body.getReader();
+  let received = 0;
+  const total = Number(response.headers.get('content-length')) || update.size || 0;
+  try {
+    sendUpdateProgress({ received, total, percent: 0, status: '已连接，正在下载更新…' });
+    const write = chunk => new Promise((resolve, reject) => {
+      if (writer.write(chunk, error => error ? reject(error) : resolve())) return;
+      writer.once('drain', resolve);
+    });
+    while (true) {
+      const next = await readWithTimeout(reader);
+      if (next.done) break;
+      const chunk = Buffer.from(next.value);
+      received += chunk.length;
+      await write(chunk);
+      sendUpdateProgress({ received, total, percent: total ? Math.min(100, received / total * 100) : 0, status: '正在下载更新…' });
+    }
+    await new Promise((resolve, reject) => writer.end(error => error ? reject(error) : resolve()));
+    return { actualHash: await hashFile(installerPath), received, total };
+  } catch (error) {
+    try { await reader.cancel(); } catch {}
+    try { writer.destroy(); } catch {}
+    throw error;
+  }
+}
+
+async function resolveDownloadUrl(url) {
+  const response = await fetch(url, { headers: { ...updateHeaders(), Accept: 'application/octet-stream' }, redirect: 'manual', signal: AbortSignal.timeout(30000) });
+  if ([301, 302, 303, 307, 308].includes(response.status)) {
+    const location = response.headers.get('location');
+    try { await response.body?.cancel(); } catch {}
+    if (!location) throw new Error('更新下载地址没有返回跳转位置');
+    return { url: new URL(location, url).toString() };
+  }
+  return { response };
+}
+
+async function probeRangeSupport(url, total) {
+  const response = await fetch(url, { headers: { ...updateHeaders(), Accept: 'application/octet-stream', Range: 'bytes=0-0' }, redirect: 'follow', signal: AbortSignal.timeout(UPDATE_RANGE_PROBE_TIMEOUT) });
+  try {
+    return response.status === 206 && response.headers.get('content-range') === `bytes 0-0/${total}`;
+  } finally {
+    try { await response.body?.cancel(); } catch {}
+  }
+}
+
+async function downloadByRanges(url, update, installerPath) {
+  const total = Number(update.size) || 0;
+  if (!total) throw new Error('更新文件大小未知，无法启用分段下载');
+  if (!await probeRangeSupport(url, total)) throw new Error('下载服务器不支持快速分段下载');
+  const count = Math.ceil(total / UPDATE_CHUNK_SIZE);
+  const handle = await fs.promises.open(installerPath, 'w');
+  let nextIndex = 0;
+  let received = 0;
+  let failed = null;
+  try {
+    await handle.truncate(total);
+    const worker = async () => {
+      while (!failed) {
+        const index = nextIndex++;
+        if (index >= count) return;
+        const start = index * UPDATE_CHUNK_SIZE;
+        const end = Math.min(total - 1, start + UPDATE_CHUNK_SIZE - 1);
+        let complete = false;
+        for (let attempt = 1; attempt <= UPDATE_CHUNK_RETRIES && !failed; attempt++) {
+          try {
+            const response = await fetch(url, { headers: { ...updateHeaders(), Accept: 'application/octet-stream', Range: `bytes=${start}-${end}` }, redirect: 'follow', signal: AbortSignal.timeout(45000) });
+            const expected = end - start + 1;
+            if (response.status !== 206) throw new Error(`分段下载不受支持（HTTP ${response.status}）`);
+            if (response.headers.get('content-range') !== `bytes ${start}-${end}/${total}`) throw new Error('分段下载范围校验失败');
+            const bytes = Buffer.from(await response.arrayBuffer());
+            if (bytes.length !== expected) throw new Error('分段下载长度校验失败');
+            await handle.write(bytes, 0, bytes.length, start);
+            received += bytes.length;
+            sendUpdateProgress({ received, total, percent: Math.min(100, received / total * 100), status: `正在并行下载更新… ${Math.round(received / total * 100)}%` });
+            complete = true;
+            break;
+          } catch (error) {
+            if (attempt === UPDATE_CHUNK_RETRIES) failed = error;
+            else await new Promise(resolve => setTimeout(resolve, 250 * attempt));
+          }
+        }
+        if (!complete) return;
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(UPDATE_PARALLELISM, count) }, () => worker()));
+    if (failed) throw failed;
+    return { actualHash: await hashFile(installerPath), received: total, total };
+  } finally {
+    await handle.close();
+  }
+}
+
+async function downloadCandidate(url, update, installerPath) {
+  const resolved = await resolveDownloadUrl(url);
+  if (resolved.response) return streamUpdateResponse(resolved.response, update, installerPath);
+  if (update.size) {
+    try {
+      sendUpdateProgress({ received: 0, total: update.size, percent: 0, status: '已连接，正在并行下载更新…' });
+      return await downloadByRanges(resolved.url, update, installerPath);
+    } catch (error) {
+      console.warn('Parallel update download unavailable, falling back to stream:', error.message);
+      try { fs.rmSync(installerPath, { force: true }); } catch {}
+      sendUpdateProgress({ received: 0, total: update.size, percent: 0, status: '分段下载不可用，切换普通下载…' });
+    }
+  }
+  const response = await fetch(resolved.url, { headers: { ...updateHeaders(), Accept: 'application/octet-stream' }, redirect: 'follow', signal: AbortSignal.timeout(30000) });
+  return streamUpdateResponse(response, update, installerPath);
+}
+
 async function downloadUpdateFile(update, installerPath) {
   let lastError = null;
   const urls = updateDownloadUrls(update);
   for (let index = 0; index < urls.length; index++) {
     const url = urls[index];
     sendUpdateProgress({ received: 0, total: update.size || 0, percent: 0, status: index ? '正在切换备用下载地址…' : '正在连接下载服务器…' });
-    let reader;
-    let writer;
     try {
-      const response = await fetch(url, { headers: { ...updateHeaders(), Accept: 'application/octet-stream' }, redirect: 'follow', signal: AbortSignal.timeout(30000) });
-      if (!response.ok || !response.body) throw new Error(`更新下载失败（HTTP ${response.status}）`);
-      writer = fs.createWriteStream(installerPath);
-      reader = response.body.getReader();
-      const hash = crypto.createHash('sha256');
-      let received = 0;
-      const total = Number(response.headers.get('content-length')) || update.size || 0;
-      sendUpdateProgress({ received, total, percent: 0, status: '已连接，正在下载更新…' });
-      const write = chunk => new Promise((resolve, reject) => {
-        if (writer.write(chunk, error => error ? reject(error) : resolve())) return;
-        writer.once('drain', resolve);
-      });
-      const readWithTimeout = () => new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(Object.assign(new Error('下载数据接收超时'), { name: 'TimeoutError' })), 30000);
-        reader.read().then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
-      });
-      while (true) {
-        const next = await readWithTimeout();
-        if (next.done) break;
-        const chunk = Buffer.from(next.value);
-        hash.update(chunk); received += chunk.length;
-        await write(chunk);
-        sendUpdateProgress({ received, total, percent: total ? Math.min(100, received / total * 100) : 0, status: '正在下载更新…' });
-      }
-      await new Promise((resolve, reject) => writer.end(error => error ? reject(error) : resolve()));
-      return { actualHash: hash.digest('hex'), received, total };
+      return await downloadCandidate(url, update, installerPath);
     } catch (error) {
       lastError = error;
       console.error('Update download candidate failed:', url, error);
-      try { await reader?.cancel(); } catch {}
-      try { writer?.destroy(); } catch {}
       try { fs.rmSync(installerPath, { force: true }); } catch {}
     }
   }
