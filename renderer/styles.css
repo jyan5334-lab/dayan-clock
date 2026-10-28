@@ -1,0 +1,22 @@
+#style-menu{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px;width:336px;max-height:calc(100% - 58px);overflow:auto}
+#style-menu .style-heading{grid-column:1/-1;padding:5px 9px;color:#91a6ab;font-size:11px}
+#style-menu button{min-width:0;min-height:36px;padding:8px;font-size:12px}
+#style-menu button span{white-space:nowrap}
+#simple-timers .designed{display:flex;flex-direction:column;--surface:#080f12;--text:#ecf6f1;--muted:#a3b9b1;--line:#57726a;--on:#081513;background:#080f12}
+#simple-timers .designed header{flex-shrink:0}
+#simple-timers .designed .display{flex:1;height:auto;min-height:0;padding:6px 0 0;margin:0;align-items:center;justify-content:flex-start}
+#simple-timers .designed .artwork{position:relative;flex:1;width:100%;min-height:110px}
+#simple-timers .designed .style-canvas{display:block;position:absolute;inset:0;width:100%;height:100%}
+#simple-timers .designed .readout{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;pointer-events:none;font-size:16px;padding:0;transform:none}
+#simple-timers .designed .digits{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+#simple-timers .designed .fraction{font:18px/1.5 Consolas,monospace;color:var(--accent);margin:0 0 4px}
+#simple-timers .designed .date{margin-top:6px;flex-shrink:0}
+#simple-timers .designed .almanac{margin-top:10px;flex-shrink:0}
+#simple-timers .designed .status{font-size:12px;margin:4px 0;min-height:18px;flex-shrink:0}
+#simple-timers .designed .settings,#simple-timers .designed .actions,#simple-timers .designed .error{flex-shrink:0}
+#simple-timers .designed.clock-mode .settings,#simple-timers .designed.clock-mode .actions,#simple-timers .designed.clock-mode .error{display:none}
+#simple-timers .designed.has-background{background-image:var(--wallpaper);background-size:cover;background-position:center}
+#simple-timers .designed.has-background::before{background:linear-gradient(180deg,#03090c99,#03090c50 50%,#03090caa)}
+html[data-fullscreen="true"] #simple-timers .designed .readout{transform:none;font-size:16px}
+html[data-fullscreen="true"] #simple-timers .designed .display{height:auto!important;padding:12px 0 0}
+html[data-fullscreen="true"] #simple-timers .designed .almanac{margin-top:12px}

@@ -188,9 +188,10 @@
   };
 
   const selectStyle = index => {
+    if (!Number.isInteger(index) || index < 0 || index >= sections.length) index = 1;
     style = index;
     sections.forEach((section, i) => { section.hidden = index !== i; });
-    document.querySelectorAll('[data-style]').forEach(button => button.setAttribute('aria-pressed', String(Number(button.dataset.style) === style)));
+    menu.querySelectorAll('[data-style]').forEach(button => button.setAttribute('aria-pressed', String(Number(button.dataset.style) === style)));
     document.documentElement.dataset.style = String(style);
     document.getElementById('simple-timers').dispatchEvent(new Event('dayan:refresh'));
   };

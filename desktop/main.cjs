@@ -227,7 +227,7 @@ function setupIPC() {
     const serialized = JSON.stringify(payload);
     if (serialized.length > 16384) return false;
     if (payload.widget?.privateContent?.version === 2) state.widget = payload.widget;
-    if (Number.isInteger(payload.style) && payload.style >= 0 && payload.style < 5) state.style = payload.style;
+    if (Number.isInteger(payload.style) && payload.style >= 0 && payload.style < 14) state.style = payload.style;
     flushState();
     return true;
   });
@@ -235,7 +235,7 @@ function setupIPC() {
     event.returnValue = false;
     if (!trusted(event) || !payload || typeof payload !== 'object' || JSON.stringify(payload).length > 16384) return;
     if (payload.widget?.privateContent?.version === 2) state.widget = payload.widget;
-    if (Number.isInteger(payload.style) && payload.style >= 0 && payload.style < 5) state.style = payload.style;
+    if (Number.isInteger(payload.style) && payload.style >= 0 && payload.style < 14) state.style = payload.style;
     flushState();event.returnValue = true;
   });
   ipcMain.handle('dayan:window-action', (event, action) => {

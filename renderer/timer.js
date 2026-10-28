@@ -1,6 +1,6 @@
 (() => {
   const root=document.getElementById('simple-timers');
-  const variants=['stage','broadcast','flip','orbit','terminal'];
+  const variants=window.dayanStyles.catalog.map(item=>item.id);
   const backgrounds=window.timerBackgrounds;
   const segmentMap=['abcdef','bc','abdeg','abcdg','bcfg','acdfg','acdefg','abc','abcdefg','abcdfg'];
   const matrixMap=['01110100011001110101110011000101110','00100011000010000100001000010001110','01110100010000100010001000100011111','11110000010000101110000010000111110','00010001100101010010111110001000010','11111100001000011110000010000111110','01110100001000011110100011000101110','11111000010001000100010000100001000','01110100011000101110100011000101110','01110100011000101111000010000101110'];
@@ -25,7 +25,7 @@
   function save() {
     const simpleTimers=models.map(({s})=>({mode:s.mode,clock:s.clock,background:s.background,target:s.target,elapsed:Math.min(current(s),s.mode==='down'?s.target:Infinity)}));
     const state={version:2,simpleTimers};lastSave=JSON.stringify(state);
-    window.openai?.setWidgetState?.({modelContent:{样式:['霓虹矩阵','液态铬金','机械黑曜','量子光环','赛博终端'],功能:'正计时、倒计时、秒表、年月日时钟',背景:backgrounds.map(b=>b.label)},privateContent:state})?.catch(()=>{});
+    window.openai?.setWidgetState?.({modelContent:{样式:window.dayanStyles.catalog.map(item=>item.name),功能:'正计时、倒计时、秒表、年月日时钟',背景:backgrounds.map(b=>b.label)},privateContent:state})?.catch(()=>{});
   }
   Array.from(root.children).forEach((section,i)=>{
     const s=sharedState||(sharedState={mode:'up',clock:true,background:backgrounds[1]?.id||'original',target:300000,elapsed:0,running:false,anchor:0});
@@ -36,6 +36,7 @@
     q('.date').insertAdjacentHTML('afterend','<div class="almanac" hidden aria-label="今日黄历"><div class="almanac-main"><span class="almanac-lunar"></span><span class="almanac-day"></span></div><div class="almanac-note"></div><div class="almanac-row"><span class="almanac-label good">宜</span><span data-almanac-yi></span></div><div class="almanac-row"><span class="almanac-label avoid">忌</span><span data-almanac-ji></span></div></div>');
     q('.brand span').textContent='DAYAN时钟';
     ['clock','watch','down','up'].forEach(mode=>q('.modes').append(q(`[data-mode="${mode}"]`)));
+    const artwork=window.dayanStyles.attach(app,variants[i]);
     let lastDisplay='',lastAction='',lastStatus='',lastBackground=null;
     function closeBackgrounds(){q('.background-picker').hidden=true;q('.background-toggle').setAttribute('aria-expanded','false');}
     function render() {
@@ -56,6 +57,7 @@
       if(s.running&&s.mode==='down'&&total>=s.target) {s.elapsed=s.target;s.running=false;total=s.target;save();}
       const value=s.mode==='down'?Math.max(0,s.target-total):total;
       const text=s.clock?`${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`:format(value);
+      artwork?.update({clock:s.clock,mode:s.mode,value,now});
       q('.readout').classList.toggle('hours',text.length>5);
       q('.readout').setAttribute('aria-label',s.clock?'电脑本地时间':'时间');
       if(lastDisplay!==text) {
@@ -136,7 +138,7 @@
       }
       s.target=(minutes*60+seconds)*1000;reset();render();save();
     }));
-    models.push({s,render,restore});
+    models.push({s,render,restore,section});
     const state=window.openai?.widgetState?.privateContent;
     if(state?.version===2)restore(state.simpleTimers?.[0]);
     s.clock=true;render();
@@ -148,7 +150,7 @@
   root.addEventListener('dayan:refresh',()=>models.forEach(model=>model.render()));
   root.addEventListener('dayan:checkpoint',save);
   refresh();
-  const ticker=setInterval(()=>{if(!root.isConnected){clearInterval(ticker);return;}if(sharedState.running||sharedState.clock)models.forEach(m=>m.render());},40);
+  const ticker=setInterval(()=>{if(!root.isConnected){clearInterval(ticker);return;}if(sharedState.running||sharedState.clock)models.filter(m=>!m.section.hidden).forEach(m=>m.render());},40);
   window.addEventListener('openai:set_globals',event=>{
     const state=event.detail?.globals?.widgetState?.privateContent;
     if(state?.version!==2||JSON.stringify(state)===lastSave)return;
