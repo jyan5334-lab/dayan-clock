@@ -37,6 +37,7 @@
   const autoStart = document.getElementById('auto-start');
   const autoStartStatus = document.getElementById('auto-start-status');
   const aboutVersion = document.getElementById('about-version');
+  const windowLayerInputs = [...document.querySelectorAll('[data-window-layer]')];
   const checkUpdate = document.getElementById('check-update');
   const updateCheckStatus = document.getElementById('update-check-status');
   const updateModal = document.getElementById('update-modal');
@@ -52,6 +53,7 @@
   let style = 1, widget;
   let displaySettings = { showAlmanac: true, modes: { clock: false, watch: true, down: true, up: true } };
   let autoStartEnabled = true;
+  let windowLayers = { unlocked: 'top', locked: 'top' };
   let security = { passwordConfigured: false, locked: false };
 
   const fit = () => {
@@ -74,8 +76,9 @@
   addEventListener('resize', fit); fit();
 
   const closeMenu = () => { menu.hidden = true; styleToggle.setAttribute('aria-expanded', 'false'); };
-  const revealChrome = () => {
+  const revealChrome = event => {
     if (document.documentElement.dataset.fullscreen !== 'true') return;
+    if (event.clientY > 84) return;
     document.documentElement.classList.add('chrome-visible');
     clearTimeout(chromeTimer);
     chromeTimer = setTimeout(() => { document.documentElement.classList.remove('chrome-visible'); closeMenu(); }, 1800);
@@ -149,6 +152,9 @@
   const syncAutoStart = () => {
     autoStart.checked = autoStartEnabled;
     autoStartStatus.textContent = autoStartEnabled ? '当前状态：已开启' : '当前状态：已关闭';
+  };
+  const syncWindowLayers = () => {
+    windowLayerInputs.forEach(input => { input.checked = windowLayers[input.dataset.windowLayer] === input.value; });
   };
   const openSettings = (refresh = true) => {
     if (security.locked) return;
@@ -236,10 +242,10 @@
     document.documentElement.dataset.style = String(style);
     document.getElementById('simple-timers').dispatchEvent(new Event('dayan:refresh'));
   };
-  const save = () => bridge.save({ widget, style, displaySettings, autoStart: autoStartEnabled });
+  const save = () => bridge.save({ widget, style, displaySettings, windowLayers, autoStart: autoStartEnabled });
   addEventListener('beforeunload', () => {
     document.getElementById('simple-timers').dispatchEvent(new Event('dayan:checkpoint'));
-    bridge.saveSync({ widget, style, displaySettings, autoStart: autoStartEnabled });
+    bridge.saveSync({ widget, style, displaySettings, windowLayers, autoStart: autoStartEnabled });
   });
 
   const syncWindow = state => {
@@ -250,6 +256,7 @@
     full.title = state.fullscreen ? '退出全屏' : '全屏';
     full.innerHTML = `<i data-lucide="${state.fullscreen ? 'minimize' : 'maximize'}"></i>`;
     document.documentElement.dataset.fullscreen = String(state.fullscreen);
+    if (state.windowLayers) { windowLayers = { ...windowLayers, ...state.windowLayers }; syncWindowLayers(); }
     if (state.fullscreen) { document.documentElement.classList.remove('chrome-visible'); clearTimeout(chromeTimer); }
     else document.documentElement.classList.add('chrome-visible');
     syncSecurity(state);
@@ -276,6 +283,11 @@
   settingsTabs.forEach(tab => tab.addEventListener('click', () => { selectSettingsTab(tab.dataset.settingsTab); if (tab.dataset.settingsTab === 'policy') refreshPolicy(); }));
   showAlmanac.addEventListener('change', () => { displaySettings = { ...displaySettings, showAlmanac: showAlmanac.checked }; syncDisplaySettings(); save(); });
   modeVisibility.forEach(input => input.addEventListener('change', () => { displaySettings = { ...displaySettings, modes: { ...displaySettings.modes, [input.dataset.modeVisibility]: input.checked } }; syncDisplaySettings(); save(); }));
+  windowLayerInputs.forEach(input => input.addEventListener('change', () => {
+    windowLayers = { ...windowLayers, [input.dataset.windowLayer]: input.value };
+    syncWindowLayers();
+    save();
+  }));
   autoStart.addEventListener('change', async () => {
     const requested = autoStart.checked;
     autoStart.disabled = true;
@@ -416,9 +428,11 @@
   bridge.load().then(saved => {
     widget = saved?.widget;
     displaySettings = normalizeDisplaySettings(saved?.displaySettings);
+    windowLayers = { ...windowLayers, ...(saved?.windowLayers || {}) };
     autoStartEnabled = saved?.autoStart !== false;
     syncDisplaySettings();
     syncAutoStart();
+    syncWindowLayers();
     document.getElementById('system-app-version').textContent = saved?.appVersion || '未知';
     aboutVersion.textContent = `当前版本：${saved?.appVersion || '未知'}`;
     selectStyle(Number.isInteger(saved?.style) ? saved.style : 1);

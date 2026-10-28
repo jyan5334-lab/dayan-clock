@@ -1,7 +1,7 @@
 {
   "name": "dayan-clock",
-  "version": "1.5.0",
-  "description": "DAYAN Clock - local desktop clock, stopwatch and timer",
+  "version": "1.6.0",
+  "description": "DAYAN Desktop - local desktop display, protection and timer tool",
   "author": "DAYAN",
   "license": "UNLICENSED",
   "private": true,
@@ -20,7 +20,7 @@
   },
   "build": {
     "appId": "com.dayan.clock",
-    "productName": "DAYAN时钟",
+    "productName": "DAYAN桌面",
     "executableName": "DAYANClock",
     "asar": true,
     "compression": "maximum",
@@ -63,7 +63,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "DAYAN时钟",
+      "shortcutName": "DAYAN桌面",
       "installerLanguages": [
         "zh_CN",
         "en_US"

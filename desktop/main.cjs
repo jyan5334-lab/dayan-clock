@@ -2,10 +2,12 @@ const { app, BrowserWindow, ipcMain, screen, Menu } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { RATIO, MIN_WIDTH, corners, fitBounds, resizeFromCorner } = require('./window-geometry.cjs');
 
-app.setName('DAYAN时钟');
+const APP_NAME = 'DAYAN桌面';
+const DEFAULT_WINDOW_LAYERS = Object.freeze({ unlocked: 'top', locked: 'top' });
+app.setName(APP_NAME);
 app.setAppUserModelId('com.dayan.clock');
 if (process.env.DAYAN_TEST === '1' && process.env.DAYAN_TEST_DATA) app.setPath('userData', process.env.DAYAN_TEST_DATA);
 const PASSWORD_ITERATIONS = 210000;
@@ -20,6 +22,13 @@ const lockdownScript = () => path.join(__dirname, '../scripts/enable-dayan-lockd
 function normalizeDisplaySettings(value) {
   const modes = value?.modes && typeof value.modes === 'object' ? value.modes : {};
   return { showAlmanac: value?.showAlmanac !== false, modes: { clock: modes.clock === true, watch: modes.watch !== false, down: modes.down !== false, up: modes.up !== false } };
+}
+
+function normalizeWindowLayers(value) {
+  return {
+    unlocked: value?.unlocked === 'bottom' ? 'bottom' : DEFAULT_WINDOW_LAYERS.unlocked,
+    locked: value?.locked === 'bottom' ? 'bottom' : DEFAULT_WINDOW_LAYERS.locked
+  };
 }
 
 function applyAutoStart(enabled) {
@@ -53,9 +62,9 @@ function normalizeUpdatePayload(payload) {
     const version = String(payload.tag_name || payload.name).replace(/^v/i, '');
     const asset = Array.isArray(payload.assets) ? payload.assets.find(item => item.name === `DAYANClock-Setup-${version}-x64.exe`) : null;
     if (!asset?.browser_download_url) return null;
-    return { version, title: payload.name || `DAYAN时钟 ${version}`, notes: String(payload.body || '').trim(), publishedAt: payload.published_at || payload.created_at || '', downloadUrl: asset.browser_download_url, sha256: typeof asset.digest === 'string' ? asset.digest.replace(/^sha256:/i, '') : '', size: Number(asset.size) || 0, releaseUrl: payload.html_url || '' };
+    return { version, title: payload.name || `DAYAN桌面 ${version}`, notes: String(payload.body || '').trim(), publishedAt: payload.published_at || payload.created_at || '', downloadUrl: asset.browser_download_url, sha256: typeof asset.digest === 'string' ? asset.digest.replace(/^sha256:/i, '') : '', size: Number(asset.size) || 0, releaseUrl: payload.html_url || '' };
   }
-  if (payload?.version && payload?.downloadUrl) return { version: String(payload.version).replace(/^v/i, ''), title: payload.title || `DAYAN时钟 ${payload.version}`, notes: String(payload.notes || '').trim(), publishedAt: payload.publishedAt || '', downloadUrl: String(payload.downloadUrl), sha256: String(payload.sha256 || '').replace(/^sha256:/i, ''), size: Number(payload.size) || 0, releaseUrl: String(payload.releaseUrl || '') };
+  if (payload?.version && payload?.downloadUrl) return { version: String(payload.version).replace(/^v/i, ''), title: payload.title || `DAYAN桌面 ${payload.version}`, notes: String(payload.notes || '').trim(), publishedAt: payload.publishedAt || '', downloadUrl: String(payload.downloadUrl), sha256: String(payload.sha256 || '').replace(/^sha256:/i, ''), size: Number(payload.size) || 0, releaseUrl: String(payload.releaseUrl || '') };
   return null;
 }
 
@@ -199,7 +208,7 @@ async function enableWindowsLockdown(action = 'enable') {
 async function changeWindowsLockdown(action) {
   const status = await windowsLockdownStatus();
   if (!status.supported && action === 'enable') return { ok: false, status, error: status.error || '当前系统未列入一键授权支持范围' };
-  if (!status.sid) return { ok: false, status, error: '无法识别当前 Windows 用户，请重新启动 DAYAN时钟后重试' };
+  if (!status.sid) return { ok: false, status, error: '无法识别当前 Windows 用户，请重新启动 DAYAN桌面后重试' };
   if (action === 'enable' && status.enabled) return { ok: true, status };
   let temporaryScript = '';
   try {
@@ -237,6 +246,7 @@ function readState() {
     if (saved && typeof saved === 'object' && !Array.isArray(saved)) state = saved;
   } catch {}
   state.displaySettings = normalizeDisplaySettings(state.displaySettings || DEFAULT_DISPLAY_SETTINGS);
+  state.windowLayers = normalizeWindowLayers(state.windowLayers);
   state.autoStart = state.autoStart !== false;
 }
 
@@ -314,18 +324,69 @@ function leavePresentation() {
   mainWindow.setFullScreen(false);
   queueWindowedRestore();
 }
+
+function fullscreenLayer() {
+  const layers = normalizeWindowLayers(state.windowLayers);
+  return layers[securityLocked ? 'locked' : 'unlocked'];
+}
+
+function sendWindowToBottom() {
+  if (process.platform !== 'win32' || !mainWindow || mainWindow.isDestroyed()) return;
+  const handle = mainWindow.getNativeWindowHandle();
+  const pointer = handle.length >= 8 ? handle.readBigUInt64LE(0).toString() : String(handle.readUInt32LE(0));
+  const source = [
+    "Add-Type @'",
+    'using System;',
+    'using System.Runtime.InteropServices;',
+    'public static class DayanNativeWindowOrder {',
+    '  [DllImport("user32.dll")]',
+    '  public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);',
+    '}',
+    "'@",
+    '[DayanNativeWindowOrder]::SetWindowPos([IntPtr]' + pointer + ', [IntPtr]1, 0, 0, 0, 0, 0x53) | Out-Null'
+  ].join('\n');
+  const encoded = Buffer.from(source, 'utf16le').toString('base64');
+  spawnSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { windowsHide: true, timeout: 3000, stdio: 'ignore' });
+}
+
+function applyPresentationWindow() {
+  if (!mainWindow || mainWindow.isDestroyed() || !isPresentationFullscreen()) return;
+  const display = screen.getDisplayMatching(mainWindow.getBounds());
+  if (fullscreenLayer() === 'bottom') {
+    mainWindow.setKiosk(false);
+    mainWindow.setFullScreen(false);
+    mainWindow.setBounds(display.bounds, false);
+    mainWindow.setAlwaysOnTop(false);
+    sendWindowToBottom();
+  } else {
+    mainWindow.setBounds(display.bounds, false);
+    mainWindow.setKiosk(securityLocked);
+    mainWindow.setFullScreen(true);
+    mainWindow.setAlwaysOnTop(true, securityLocked ? 'screen-saver' : 'floating');
+  }
+}
+
 function restorePinnedState() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (isPresentationFullscreen()) {
+    if (fullscreenLayer() === 'bottom') {
+      mainWindow.setAlwaysOnTop(false);
+      sendWindowToBottom();
+    } else {
+      mainWindow.setAlwaysOnTop(true, securityLocked ? 'screen-saver' : 'floating');
+    }
+    return;
+  }
   if (securityLocked) mainWindow.setAlwaysOnTop(true, 'screen-saver');
   else mainWindow.setAlwaysOnTop(state.pinned === true);
 }
 function notify() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send('dayan:window-state', { pinned: state.pinned === true, fullscreen: isPresentationFullscreen(), ...securitySnapshot() });
+  mainWindow.webContents.send('dayan:window-state', { pinned: state.pinned === true, fullscreen: isPresentationFullscreen(), windowLayers: normalizeWindowLayers(state.windowLayers), ...securitySnapshot() });
 }
 
 function setupIPC() {
-  ipcMain.handle('dayan:load', event => trusted(event) ? { widget: state.widget, style: state.style, displaySettings: state.displaySettings, autoStart: state.autoStart !== false, appVersion: app.getVersion(), showSettingsOnStartup: state.settingsGuideVersion !== 1, pinned: state.pinned === true, fullscreen: isPresentationFullscreen(), ...securitySnapshot() } : null);
+  ipcMain.handle('dayan:load', event => trusted(event) ? { widget: state.widget, style: state.style, displaySettings: state.displaySettings, windowLayers: normalizeWindowLayers(state.windowLayers), autoStart: state.autoStart !== false, appVersion: app.getVersion(), showSettingsOnStartup: state.settingsGuideVersion !== 1, pinned: state.pinned === true, fullscreen: isPresentationFullscreen(), ...securitySnapshot() } : null);
   ipcMain.handle('dayan:security-policy-status', event => trusted(event) ? windowsLockdownStatus() : { supported: false, enabled: false, missing: [], error: '请求无效' });
   ipcMain.handle('dayan:security-policy-enable', event => trusted(event) && !securityLocked ? enableWindowsLockdown() : { ok: false, error: '请先解锁时钟' });
   ipcMain.handle('dayan:security-policy-restore', event => trusted(event) && !securityLocked ? enableWindowsLockdown('restore') : { ok: false, error: '请先解锁时钟' });
@@ -342,7 +403,9 @@ function setupIPC() {
     if (payload.widget?.privateContent?.version === 2) state.widget = payload.widget;
     if (Number.isInteger(payload.style) && payload.style >= 0 && payload.style < 14) state.style = payload.style;
     if (payload.displaySettings && typeof payload.displaySettings === 'object') state.displaySettings = normalizeDisplaySettings(payload.displaySettings);
+    if (payload.windowLayers && typeof payload.windowLayers === 'object') state.windowLayers = normalizeWindowLayers(payload.windowLayers);
     if (typeof payload.autoStart === 'boolean') state.autoStart = applyAutoStart(payload.autoStart);
+    if (isPresentationFullscreen()) applyPresentationWindow(); else restorePinnedState();
     flushState();
     return true;
   });
@@ -352,7 +415,9 @@ function setupIPC() {
     if (payload.widget?.privateContent?.version === 2) state.widget = payload.widget;
     if (Number.isInteger(payload.style) && payload.style >= 0 && payload.style < 14) state.style = payload.style;
     if (payload.displaySettings && typeof payload.displaySettings === 'object') state.displaySettings = normalizeDisplaySettings(payload.displaySettings);
+    if (payload.windowLayers && typeof payload.windowLayers === 'object') state.windowLayers = normalizeWindowLayers(payload.windowLayers);
     if (typeof payload.autoStart === 'boolean') state.autoStart = applyAutoStart(payload.autoStart);
+    if (isPresentationFullscreen()) applyPresentationWindow(); else restorePinnedState();
     flushState();event.returnValue = true;
   });
   ipcMain.handle('dayan:auto-start', (event, enabled) => {
@@ -374,7 +439,7 @@ function setupIPC() {
     }
     if (action === 'fullscreen') {
       if (isPresentationFullscreen()) leavePresentation();
-      else { preparePresentation(); mainWindow.setFullScreen(true); }
+      else { preparePresentation(); applyPresentationWindow(); }
     }
     notify();
     return true;
@@ -402,10 +467,7 @@ function setupIPC() {
     mainWindow.setSkipTaskbar(true);
     const forceKiosk = () => {
       if (!mainWindow || mainWindow.isDestroyed() || !securityLocked) return;
-      const display = screen.getDisplayMatching(mainWindow.getBounds());
-      mainWindow.setBounds(display.bounds, false);
-      mainWindow.setKiosk(true);
-      mainWindow.setFullScreen(true);
+      applyPresentationWindow();
       mainWindow.show();
       mainWindow.focus();
       restorePinnedState();
@@ -449,7 +511,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     ...windowedBounds,
     minWidth: MIN_WIDTH, minHeight: Math.round(MIN_WIDTH / RATIO),
-    title: 'DAYAN时钟', icon: path.join(__dirname, '../assets/icon.png'),
+    title: APP_NAME, icon: path.join(__dirname, '../assets/icon.png'),
     frame: false, resizable: true, maximizable: false, fullscreenable: true,
     backgroundColor: '#080c10', show: false, autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false }
@@ -481,7 +543,7 @@ function createWindow() {
     restorePinnedState(); notify();
   });
   mainWindow.on('restore', () => {
-    if (presentationRequested || securityLocked) { mainWindow.setFullScreen(true); notify(); }
+    if (presentationRequested || securityLocked) { applyPresentationWindow(); notify(); }
     else queueWindowedRestore();
   });
   mainWindow.once('ready-to-show', () => { mainWindow.show(); restoreWindowedBounds(); });

@@ -35,7 +35,7 @@
     const app=section.querySelector('.timer'),q=sel=>app.querySelector(sel);
     app.insertAdjacentHTML('afterbegin','<div class="wallpaper-media" aria-hidden="true"></div>');
     q('.date').insertAdjacentHTML('afterend','<div class="almanac" hidden aria-label="今日黄历"><div class="almanac-main"><span class="almanac-lunar"></span><span class="almanac-day"></span></div><div class="almanac-note"></div><div class="almanac-row"><span class="almanac-label good">宜</span><span data-almanac-yi></span></div><div class="almanac-row"><span class="almanac-label avoid">忌</span><span data-almanac-ji></span></div></div>');
-    q('.brand span').textContent='DAYAN时钟';
+    q('.brand span').textContent='DAYAN桌面';
     ['clock','watch','down','up'].forEach(mode=>q('.modes').append(q(`[data-mode="${mode}"]`)));
     const artwork=window.dayanStyles.attach(app,variants[i]);
     let lastDisplay='',lastAction='',lastStatus='',lastBackground=null;
@@ -98,7 +98,7 @@
       if(lastAction!==actionKey){q('[data-action="toggle"]').innerHTML=icon(s.running?'pause':'play')+`<span>${s.running?'暂停':total>0?'继续':'开始'}</span>`;lastAction=actionKey;refresh();}
       q('[data-action="toggle"]').disabled=ended;
       app.classList.toggle('running',s.running&&!s.clock);
-      app.querySelectorAll('[data-mode]').forEach(button=>{const visible=displaySettings.modes[button.dataset.mode]!==false;button.classList.toggle('mode-label-hidden',!visible);button.setAttribute('aria-label',visible?button.textContent.trim():`${button.textContent.trim()}（文字已隐藏）`);button.setAttribute('aria-pressed',String(button.dataset.mode===(s.clock?'clock':s.mode)));});
+      app.querySelectorAll('[data-mode]').forEach(button=>{const visible=displaySettings.modes[button.dataset.mode]!==false;button.hidden=!visible;button.disabled=!visible;button.classList.toggle('mode-label-hidden',!visible);button.setAttribute('aria-label',visible?button.textContent.trim():`${button.textContent.trim()}（文字已隐藏）`);button.setAttribute('aria-pressed',String(button.dataset.mode===(s.clock?'clock':s.mode)));});
       app.querySelectorAll('.settings label').forEach(label=>label.hidden=s.clock||s.mode!=='down');
       app.querySelectorAll('[data-action]').forEach(button=>button.hidden=s.clock);
       app.querySelectorAll('input').forEach(input=>input.disabled=s.running);

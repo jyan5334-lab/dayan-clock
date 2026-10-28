@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'">
-  <title>DAYAN时钟</title>
+  <title>DAYAN桌面</title>
   <link rel="stylesheet" href="renderer/timer.css">
   <link rel="stylesheet" href="renderer/desktop.css">
   <link rel="stylesheet" href="renderer/styles.css">
@@ -18,7 +18,7 @@
 <body>
   <main id="desktop-stage">
     <div class="titlebar">
-      <div class="drag-area"><img src="assets/icon.png" alt=""><span>DAYAN时钟</span></div>
+      <div class="drag-area"><img src="assets/icon.png" alt=""><span>DAYAN桌面</span></div>
       <div class="window-tools">
         <button id="style-toggle" type="button" aria-label="选择样式" title="选择样式" aria-expanded="false"><i data-lucide="palette"></i></button>
         <button id="settings-toggle" type="button" aria-label="设置" title="设置" aria-haspopup="dialog"><i data-lucide="settings"></i><span>设置</span><span class="settings-dot" aria-hidden="true"></span></button>
@@ -29,7 +29,7 @@
         <button id="close" type="button" aria-label="关闭" title="关闭"><i data-lucide="x"></i></button>
       </div>
     </div>
-    <div id="simple-timers" aria-label="DAYAN时钟">
+    <div id="simple-timers" aria-label="DAYAN桌面">
       <section data-variant="霓虹矩阵" hidden></section>
       <section data-variant="液态铬金"></section>
       <section data-variant="机械黑曜" hidden></section>
@@ -47,7 +47,7 @@
   <div id="lock-screen" hidden aria-live="polite">
     <div id="unlock-panel" class="security-panel" hidden>
       <div class="security-panel-icon"><i data-lucide="lock-keyhole"></i></div>
-      <strong>DAYAN时钟已锁定</strong>
+      <strong>DAYAN桌面已锁定</strong>
       <form id="unlock-form">
         <label class="sr-only" for="unlock-password">锁屏密码</label>
         <input id="unlock-password" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="current-password" placeholder="输入数字密码" maxlength="16">
@@ -94,6 +94,7 @@
         <button type="button" role="tab" aria-selected="false" aria-controls="settings-almanac" data-settings-tab="almanac"><i data-lucide="calendar-days"></i><span>老黄历</span></button>
         <button type="button" role="tab" aria-selected="false" aria-controls="settings-autostart" data-settings-tab="autostart"><i data-lucide="power"></i><span>开机自启动</span></button>
         <button type="button" role="tab" aria-selected="false" aria-controls="settings-about" data-settings-tab="about"><i data-lucide="info"></i><span>关于我们</span></button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="settings-layers" data-settings-tab="layers"><i data-lucide="layers-3"></i><span>窗口层级</span></button>
       </nav>
       <div class="settings-body">
         <section id="settings-policy" class="settings-section" data-settings-panel="policy" role="tabpanel">
@@ -128,18 +129,33 @@
         </section>
         <section id="settings-autostart" class="settings-section" data-settings-panel="autostart" role="tabpanel" hidden>
           <div class="settings-heading"><strong>开机自启动</strong></div>
-          <p>登录 Windows 后自动启动 DAYAN时钟。安装完成后默认开启，可随时关闭。</p>
+          <p>登录 Windows 后自动启动 DAYAN桌面。安装完成后默认开启，可随时关闭。</p>
           <label class="setting-check setting-check-large"><input id="auto-start" type="checkbox"><span>登录系统后自动启动</span></label>
           <p id="auto-start-status" class="settings-hint"></p>
         </section>
         <section id="settings-about" class="settings-section about-section" data-settings-panel="about" role="tabpanel" hidden>
           <div class="about-mark"><i data-lucide="timer"></i></div>
-          <strong>DAYAN时钟</strong>
-          <p>一款用于桌面展示、培训计时和直播计时的本地桌面工具。</p>
+          <strong>DAYAN桌面</strong>
+          <p>一款用于桌面展示、桌面保护与视觉美化的本地桌面工具，支持时钟、计时、屏保式展示和密码锁定。</p>
           <p class="about-company">昆明迅琰网络科技有限公司</p>
           <p id="about-version" class="settings-hint">当前版本：—</p>
           <button id="check-update" class="policy-secondary" type="button"><i data-lucide="refresh-cw"></i><span>检查更新</span></button>
           <p id="update-check-status" class="settings-hint" role="status"></p>
+        </section>
+        <section id="settings-layers" class="settings-section" data-settings-panel="layers" role="tabpanel" hidden>
+          <div class="settings-heading"><strong>全屏窗口层级</strong></div>
+          <p>以下选项只影响点击“全屏”后的窗口层级，普通窗口仍由顶部的置顶按钮控制。</p>
+          <fieldset class="layer-group">
+            <legend>未锁定时</legend>
+            <label class="setting-radio"><input type="radio" name="unlocked-window-layer" value="top" data-window-layer="unlocked"><span>置顶模式</span><small>覆盖其他窗口，适合持续展示</small></label>
+            <label class="setting-radio"><input type="radio" name="unlocked-window-layer" value="bottom" data-window-layer="unlocked"><span>置底模式</span><small>尽量放到桌面窗口底部，作为桌面背景展示</small></label>
+          </fieldset>
+          <fieldset class="layer-group">
+            <legend>锁定时</legend>
+            <label class="setting-radio"><input type="radio" name="locked-window-layer" value="top" data-window-layer="locked"><span>置顶模式</span><small>推荐；配合系统授权后阻止绕过应用</small></label>
+            <label class="setting-radio"><input type="radio" name="locked-window-layer" value="bottom" data-window-layer="locked"><span>置底模式</span><small>锁屏窗口放到桌面底部，其他窗口可能遮挡它</small></label>
+          </fieldset>
+          <p class="policy-notice">提示：普通桌面程序无法让“置底锁屏”同时遮挡所有桌面图标和窗口。需要禁止任务管理器、快捷键和桌面操作时，请选择锁定置顶模式，并完成 Windows 锁屏保护授权。</p>
         </section>
       </div>
       <footer class="settings-footer" data-settings-footer="policy">
