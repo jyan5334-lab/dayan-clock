@@ -10,11 +10,11 @@
 
 ## 安装包校验
 
-同一 Release 下载 `SHA256SUMS-1.4.0.txt` 与安装包，在下载目录运行：
+同一 Release 下载 `SHA256SUMS-1.4.1.txt` 与安装包，在下载目录运行：
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\DAYANClock-Setup-1.4.0-x64.exe
-Get-FileHash -Algorithm SHA256 .\DAYANClock-Source-1.4.0.zip
+Get-FileHash -Algorithm SHA256 .\DAYANClock-Setup-1.4.1-x64.exe
+Get-FileHash -Algorithm SHA256 .\DAYANClock-Source-1.4.1.zip
 ```
 
 将输出与校验文件逐项比较。安装包暂未签名，可能出现未知发布者提示；校验值用于确认文件与该版本资产一致，不代替代码签名。

@@ -1,0 +1,123 @@
+{
+  "collection": "DAYAN时钟主题壁纸",
+  "date": "2026-10-28",
+  "generation": "built-in image_gen",
+  "requestedResolution": [
+    3840,
+    2160
+  ],
+  "resolutionStatus": "工具返回尺寸低于原生4K。未放大或重采样，不能保证4K、8K屏幕的原生清晰度。",
+  "layout": "近16:9横向原图；建议居中等比例覆盖。超宽屏与竖屏会裁切，不拉伸。",
+  "images": [
+    {
+      "id": "galactic-vault",
+      "name": "银河穹顶",
+      "category": "星际科幻",
+      "description": "银青银河拱顶与月面地貌，中央保留深色星空。",
+      "src": "assets/backgrounds/galactic-vault.png",
+      "width": 1672,
+      "height": 941,
+      "bytes": 2618184,
+      "sha256": "068c6db0a322dc6ab7bfcc4a2a030d93d140aecff6b3dfe82c5af0ad3c1d869f"
+    },
+    {
+      "id": "titanium-hangar",
+      "name": "钛银机库",
+      "category": "硬朗科幻",
+      "description": "钛银机库的结构位于两侧，辅以冷青与暖金边光。",
+      "src": "assets/backgrounds/titanium-hangar.png",
+      "width": 1672,
+      "height": 941,
+      "bytes": 2203824,
+      "sha256": "6321dc7aa48d3a150d67148303c9f77ce708b5fdbbe05b78fb86fb18c01b4b15"
+    },
+    {
+      "id": "abyssal-sanctuary",
+      "name": "深海遗迹",
+      "category": "深海秘境",
+      "description": "深海玄武岩与微光珊瑚围合四周，中央为安静暗水。",
+      "src": "assets/backgrounds/abyssal-sanctuary.png",
+      "width": 1672,
+      "height": 941,
+      "bytes": 1986459,
+      "sha256": "3445f610fd7f879b908e3e82515d537bdfe9516f9ea817281a57e637519f83d1"
+    },
+    {
+      "id": "polar-silence",
+      "name": "极夜雪境",
+      "category": "自然极简",
+      "description": "低位雪山、冰湖与顶部极光，留出大面积夜空。",
+      "src": "assets/backgrounds/polar-silence.png",
+      "width": 1672,
+      "height": 941,
+      "bytes": 2195356,
+      "sha256": "cfed0b1b395be91b110749c6f297b02ff128feb4154e51c9d54bac7627acb544"
+    },
+    {
+      "id": "emerald-sanctuary",
+      "name": "翡翠秘境",
+      "category": "自然疗愈",
+      "description": "雨林、蕨叶、湿润苔石和静水，绿色月光落在边缘。",
+      "src": "assets/backgrounds/emerald-sanctuary.png",
+      "width": 1672,
+      "height": 941,
+      "bytes": 2486125,
+      "sha256": "435f4dbc9a9642e997f6fd221e0048f84de585ebe10dae70d8dfd1572f08d248"
+    },
+    {
+      "id": "rose-silk",
+      "name": "玫瑰星纱",
+      "category": "柔和时尚",
+      "description": "玫瑰粉丝绸与透纱沿对角线流动，中央为深色留白。",
+      "src": "assets/backgrounds/rose-silk.png",
+      "width": 1672,
+      "height": 941,
+      "bytes": 2253720,
+      "sha256": "1a2b2e226c26c3958846e67136333423634bde9dee892165fcdd7398d53f4a9e"
+    },
+    {
+      "id": "moonlit-garden",
+      "name": "月下花庭",
+      "category": "柔和花卉",
+      "description": "月光玉兰与淡粉花瓣分布在两侧，映衬暗色水庭。",
+      "src": "assets/backgrounds/moonlit-garden.png",
+      "width": 1672,
+      "height": 941,
+      "bytes": 1930083,
+      "sha256": "b84029631acc7063d762172ab03d5278f6262e918180612c01f38d0538fd7419"
+    },
+    {
+      "id": "prismatic-glass",
+      "name": "流光琉璃",
+      "category": "轻盈未来",
+      "description": "银白、淡紫和薄荷色琉璃雕塑，折射细节集中于四周。",
+      "src": "assets/backgrounds/prismatic-glass.png",
+      "width": 1672,
+      "height": 941,
+      "bytes": 2328282,
+      "sha256": "4c2808bf8080ac944c1aef99b9fbd4485cf2eb841ed756f41328a8d0e31a09a3"
+    },
+    {
+      "id": "obsidian-dunes",
+      "name": "金曜沙海",
+      "category": "静奢极简",
+      "description": "黑沙丘的细密纹理与香槟金轮廓线，中央夜空克制干净。",
+      "src": "assets/backgrounds/obsidian-dunes.png",
+      "width": 1672,
+      "height": 941,
+      "bytes": 1762342,
+      "sha256": "db69c29e2fc9a905458cda37fbcfea992d25752ee8b268b76fd69129c94fb363"
+    },
+    {
+      "id": "neon-rain",
+      "name": "雨夜霓城",
+      "category": "都市赛博",
+      "description": "雨夜楼宇以洋红、琥珀和少量青色点亮两侧，中央为夜空。",
+      "src": "assets/backgrounds/neon-rain.png",
+      "width": 1672,
+      "height": 941,
+      "bytes": 2271826,
+      "sha256": "c186c0c2e853617719a9221c76c037443b7bbb0111265f38f86adcd4f066d9e2"
+    }
+  ]
+}

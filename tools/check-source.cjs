@@ -2,6 +2,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const crypto = require('node:crypto');
+const { pathToFileURL, fileURLToPath } = require('node:url');
 const { spawnSync } = require('node:child_process');
 
 const root = path.resolve(__dirname, '..');
@@ -15,16 +17,33 @@ for (const relative of ['index.html', 'desktop/main.cjs', 'desktop/preload.cjs',
   assert.ok(fs.statSync(path.join(root, relative)).size > 0, `Missing ${relative}`);
 }
 
-const context = { window: {}, document: { baseURI: 'file:///dayan/index.html' }, URL };
+const context = { window: {}, document: { baseURI: pathToFileURL(path.join(root, 'index.html')).href }, URL };
 vm.runInNewContext(read('renderer/backgrounds.js'), context);
 const backgrounds = context.window.timerBackgrounds;
-assert.equal(backgrounds.length, 10, 'Expected ten bundled wallpapers');
-assert.equal(new Set(backgrounds.map(item => item.id)).size, 10);
+assert.equal(backgrounds.length, 20, 'Expected twenty bundled wallpapers');
+assert.equal(new Set(backgrounds.map(item => item.id)).size, backgrounds.length);
 for (const item of backgrounds) {
   assert.match(item.id, /^[a-z-]+$/);
-  const image = fs.readFileSync(path.join(root, 'assets/backgrounds', `${item.id}.webp`));
-  assert.equal(image.toString('ascii', 0, 4), 'RIFF');
-  assert.equal(image.toString('ascii', 8, 12), 'WEBP');
+  const file = fileURLToPath(item.src);
+  assert.equal(path.dirname(file), path.join(root, 'assets/backgrounds'), 'Wallpaper escapes asset directory');
+  const image = fs.readFileSync(file);
+  if (path.extname(file) === '.png') {
+    assert.equal(image.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+  } else {
+    assert.equal(image.toString('ascii', 0, 4), 'RIFF');
+    assert.equal(image.toString('ascii', 8, 12), 'WEBP');
+  }
+}
+const wallpaperManifest = JSON.parse(read('assets/backgrounds-20261028.json'));
+assert.equal(wallpaperManifest.images.length, 10);
+for (const item of wallpaperManifest.images) {
+  const registered = backgrounds.find(background => background.id === item.id);
+  assert.ok(registered, `Unregistered wallpaper: ${item.id}`);
+  assert.equal(registered.src, new URL(item.src, context.document.baseURI).href);
+  const image = fs.readFileSync(path.join(root, item.src));
+  assert.equal(image.readUInt32BE(16), item.width);
+  assert.equal(image.readUInt32BE(20), item.height);
+  assert.equal(crypto.createHash('sha256').update(image).digest('hex'), item.sha256, `Wallpaper differs from original: ${item.id}`);
 }
 
 const files = [];

@@ -1,8 +1,8 @@
 # DAYAN时钟
 
-用于培训展示、直播计时和桌面屏保的离线桌面工具。打开即显示电脑本地时间，可切换秒表、倒计时和正计时；提供十四种显示样式、十张本地壁纸、日期与黄历，以及密码锁定展示模式。
+用于培训展示、直播计时和桌面屏保的离线桌面工具。打开即显示电脑本地时间，可切换秒表、倒计时和正计时；提供十四种显示样式、二十张本地壁纸、日期与黄历，以及密码锁定展示模式。
 
-当前版本：**1.4.0**。本仓库为私有代码与安装包备份，供获授权的维护者访问。
+当前版本：**1.4.1**。本仓库为私有代码与安装包备份，供获授权的维护者访问。
 
 [下载安装包](https://github.com/jyan5334-lab/dayan-clock/releases/latest) · [使用说明](docs/user-guide.md) · [部署与构建](docs/deployment.md) · [换电脑与远程维护](docs/maintenance.md) · [更新记录](CHANGELOG.md)
 
@@ -18,7 +18,7 @@
 | 正计时 | 从零累计，支持暂停、继续和重置 |
 | 经典样式 | 霓虹矩阵、液态铬金、机械黑曜、量子光环、赛博终端 |
 | 新增九款 | 巨幕极简、星舰中枢、星尘聚时、电路脉冲、故障电压、酸性涂鸦、光速轨迹、三体星轨、光谱脉冲 |
-| 十张壁纸 | 全部随安装包提供，断网可用；当前为静态图片 |
+| 二十张壁纸 | 保留原有十张，新增十个主题；全部本地提供，断网可用，当前为静态图片 |
 | 窗口与全屏 | 四角等比例缩放、置顶、全屏适配、顶部栏随鼠标移动暂时显示 |
 | 密码锁定 | 4 至 16 位数字密码；锁定后进入 kiosk 全屏，隐藏操作入口 |
 | Windows 设置 | 启动自检、版本架构识别、一键引导授权、策略复检与恢复 |
@@ -50,6 +50,26 @@
 
 ### 壁纸预览
 
+右下角图片按钮可选择全部二十张壁纸；选择面板支持滚动，小窗口也可访问完整列表。最新十张 PNG 原图实测为 **1672×941**，采用居中等比例覆盖，**不属于原生 4K / 8K 壁纸**。屏幕尺寸适配与图片原生清晰度是两回事。完整主题、分辨率与生成来源见 [壁纸说明](docs/wallpapers.md)。
+
+![月下花庭壁纸与时钟的实际程序效果](docs/screenshots/wallpaper-floral.png)
+
+#### 新增十个主题
+
+| 银河穹顶 | 钛银机库 |
+| --- | --- |
+| ![银河穹顶](assets/backgrounds/galactic-vault.png) | ![钛银机库](assets/backgrounds/titanium-hangar.png) |
+| 深海遗迹 | 极夜雪境 |
+| ![深海遗迹](assets/backgrounds/abyssal-sanctuary.png) | ![极夜雪境](assets/backgrounds/polar-silence.png) |
+| 翡翠秘境 | 玫瑰星纱 |
+| ![翡翠秘境](assets/backgrounds/emerald-sanctuary.png) | ![玫瑰星纱](assets/backgrounds/rose-silk.png) |
+| 月下花庭 | 流光琉璃 |
+| ![月下花庭](assets/backgrounds/moonlit-garden.png) | ![流光琉璃](assets/backgrounds/prismatic-glass.png) |
+| 金曜沙海 | 雨夜霓城 |
+| ![金曜沙海](assets/backgrounds/obsidian-dunes.png) | ![雨夜霓城](assets/backgrounds/neon-rain.png) |
+
+#### 原有十张
+
 | 暗夜山峦 | 寂静月面 |
 | --- | --- |
 | ![暗夜山峦](assets/backgrounds/mountains.webp) | ![寂静月面](assets/backgrounds/lunar.webp) |
@@ -74,11 +94,11 @@
 | 其他平台 | Windows 12 等未来版本及 ARM64 授权未验证；macOS 仅预留构建配置 |
 
 1. 登录有本仓库访问权限的 GitHub 账号，打开 [Releases](https://github.com/jyan5334-lab/dayan-clock/releases)。
-2. 下载 `DAYANClock-Setup-1.4.0-x64.exe`，运行后选择安装目录。
+2. 下载 `DAYANClock-Setup-1.4.1-x64.exe`，运行后选择安装目录。
 3. 从桌面或开始菜单启动，首次打开可在设置中确认系统版本与策略状态。
 4. 核对设置页中的软件版本。升级时先退出旧程序，再运行新安装包。
 
-安装包当前未做 Windows 代码签名，系统可能显示“未知发布者”。每个版本附带 `SHA256SUMS-1.4.0.txt`，校验方法见 [部署说明](docs/deployment.md#安装包校验)。
+安装包当前未做 Windows 代码签名，系统可能显示“未知发布者”。每个版本附带 `SHA256SUMS-1.4.1.txt`，校验方法见 [部署说明](docs/deployment.md#安装包校验)。
 
 ## 开发与构建
 
@@ -107,7 +127,7 @@ macOS 需在 Mac 或 macOS 构建环境执行 `npm ci` 和 `npm run dist:mac`。
 ```text
 desktop/           Electron 主进程、IPC、窗口缩放和 Windows 打包
 renderer/          计时逻辑、样式、背景列表、黄历与桌面交互
-assets/            十张壁纸、应用图标和第三方许可证
+assets/            二十张壁纸、素材清单、应用图标和第三方许可证
 scripts/           Windows 策略授权/恢复，以及原始素材工具
 tools/             可在新电脑直接运行的源码检查
 docs/              使用、部署、维护、验收与版本说明

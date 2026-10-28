@@ -48,5 +48,55 @@ window.timerBackgrounds = [
     "id": "city",
     "label": "雨夜都市",
     "src": "assets/backgrounds/city.webp"
+  },
+  {
+    "id": "galactic-vault",
+    "label": "银河穹顶",
+    "src": "assets/backgrounds/galactic-vault.png"
+  },
+  {
+    "id": "titanium-hangar",
+    "label": "钛银机库",
+    "src": "assets/backgrounds/titanium-hangar.png"
+  },
+  {
+    "id": "abyssal-sanctuary",
+    "label": "深海遗迹",
+    "src": "assets/backgrounds/abyssal-sanctuary.png"
+  },
+  {
+    "id": "polar-silence",
+    "label": "极夜雪境",
+    "src": "assets/backgrounds/polar-silence.png"
+  },
+  {
+    "id": "emerald-sanctuary",
+    "label": "翡翠秘境",
+    "src": "assets/backgrounds/emerald-sanctuary.png"
+  },
+  {
+    "id": "rose-silk",
+    "label": "玫瑰星纱",
+    "src": "assets/backgrounds/rose-silk.png"
+  },
+  {
+    "id": "moonlit-garden",
+    "label": "月下花庭",
+    "src": "assets/backgrounds/moonlit-garden.png"
+  },
+  {
+    "id": "prismatic-glass",
+    "label": "流光琉璃",
+    "src": "assets/backgrounds/prismatic-glass.png"
+  },
+  {
+    "id": "obsidian-dunes",
+    "label": "金曜沙海",
+    "src": "assets/backgrounds/obsidian-dunes.png"
+  },
+  {
+    "id": "neon-rain",
+    "label": "雨夜霓城",
+    "src": "assets/backgrounds/neon-rain.png"
   }
 ].map(item => ({ ...item, src: new URL(item.src, document.baseURI).href }));
