@@ -2,8 +2,8 @@
 
 ## 换电脑后继续使用
 
-1. 登录有本私有仓库访问权限的 GitHub 账号。
-2. 在 [Releases](https://github.com/jyan5334-lab/dayan-clock/releases) 下载并安装对应版本的 Windows x64 安装包。
+1. 打开公开仓库的 [Releases](https://github.com/jyan5334-lab/dayan-clock/releases)。
+2. 下载并安装对应版本的 Windows x64 安装包。
 3. 启动后查看设置中的系统版本、架构与策略检测结果。
 4. 按需重新选择壁纸、样式和锁屏密码。需要系统策略时，在新电脑设置中重新引导授权。
 
@@ -36,13 +36,13 @@ npm ci
 npm run check
 ```
 
-用分支保存修改，审查后合并回 `main`。更换维护设备只需 GitHub 账号访问权限和上述开发环境；私有仓库没有公开访问入口。邀请协作者时由仓库所有者在 GitHub 的 Settings → Collaborators 中管理权限。
+用分支保存修改，审查后合并回 `main`。更换维护设备可直接读取公开仓库；提交和发布仍需要 GitHub 写权限。邀请协作者时由仓库所有者在 GitHub 的 Settings → Collaborators 中管理权限。
 
 ## 每次推送的文档要求
 
 每次推送都同步更新 `CHANGELOG.md`，说明本次变更、用户能看到的结果以及相关验证。功能或素材发生变化时，同步更新 README 图文介绍、使用说明和对应截图；新增图片应保留原图尺寸、来源与校验信息。不要将未验证的画质、平台或权限能力写成已经通过验收。
 
-正式发布安装包时，另提供 `docs/releases/v<版本>.md`，列出更新内容、下载文件、平台范围、升级步骤、验证范围与已知限制。先完成检查与文档，再推送源码及标签，并在私有 Release 保存安装包、源码 ZIP 和 SHA-256 清单。
+正式发布安装包时，另提供 `docs/releases/v<版本>.md`，列出更新内容、下载文件、平台范围、升级步骤、验证范围与已知限制。先完成检查与文档，再推送源码及标签，并在公开 Release 保存安装包、源码 ZIP 和 SHA-256 清单。
 
 ## 发布新版本
 
@@ -73,9 +73,9 @@ $lines | Set-Content -LiteralPath "release/SHA256SUMS-$version.txt" -Encoding as
 
 5. 在 GitHub Releases 创建草稿，选择对应标签，填写更新内容、平台范围、验收结果和已知限制。
 6. 上传安装包、标签源码 ZIP 和 SHA-256 清单，确认后发布。安装包未签名时如实标注。
-7. 重新下载并核对 SHA-256，确认 Release 可通过获授权账号访问，仓库仍为 Private。
+7. 重新下载并核对 SHA-256，确认 Release 可公开访问，仓库保持 Public。
 
-安装包通过 Release 保存，不加入 Git 历史。依赖由锁文件恢复，不上传 `node_modules`。应用已包含启动检查、强制更新提示、下载校验和重启安装流程；由于本仓库为 Private，普通用户需要配置 `DAYAN_UPDATE_MANIFEST_URL` 及其下载代理后才能实际访问更新源，不能把 GitHub Token 写进客户端。
+安装包通过 Release 保存，不加入 Git 历史。依赖由锁文件恢复，不上传 `node_modules`。应用已包含启动检查、强制更新提示、下载校验和重启安装流程；当前公开 GitHub Release 可作为默认更新源，需要自定义渠道时再配置 `DAYAN_UPDATE_MANIFEST_URL`，不能把 GitHub Token 写进客户端。
 
 ## 问题排查
 

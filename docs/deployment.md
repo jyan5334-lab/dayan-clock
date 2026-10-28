@@ -2,7 +2,7 @@
 
 ## 直接安装
 
-下载私有仓库 [Releases](https://github.com/jyan5334-lab/dayan-clock/releases) 中的 Windows x64 安装包。使用者无需安装开发环境、Node.js 或服务器。程序运行、壁纸与黄历均为本地资源。
+下载公开仓库 [Releases](https://github.com/jyan5334-lab/dayan-clock/releases) 中的 Windows x64 安装包。使用者无需安装开发环境、Node.js 或服务器。程序运行、壁纸与黄历均为本地资源。
 
 已提供 Windows 10/11 x64 安装包，实机验收环境为 Windows 11 专业版 x64。Windows 10 尚未实机验收，Windows ARM64、未来 Windows 版本的一键授权尚未验证；macOS 尚无已验证安装包。设置中的兼容性提示描述应用当前允许的授权范围，不是所有系统版本的认证。
 
@@ -31,7 +31,7 @@ npm run check
 npm start
 ```
 
-私有仓库需要 GitHub 账号访问权限，可通过 Git Credential Manager 登录。不要把访问令牌写入克隆地址、源码或脚本。首次 `npm ci` 和 Windows 打包需要从依赖源下载 Electron、NSIS 等工具，请确保网络可访问。
+公开仓库可直接克隆和下载；提交代码、创建 Release 等维护操作仍需要对应的 GitHub 写权限。不要把访问令牌写入克隆地址、源码或脚本。首次 `npm ci` 和 Windows 打包需要从依赖源下载 Electron、NSIS 等工具，请确保网络可访问。
 
 ## Windows 打包
 
@@ -67,4 +67,4 @@ npm run dist:mac
 
 启动时由 Electron 主进程检查 GitHub Release 或自定义 JSON 更新清单。Release 数据需包含 `tag_name`、匹配版本的 `DAYANClock-Setup-<版本>-x64.exe` 资产和可选的 SHA-256 摘要；自定义清单格式为 `{"version":"1.5.1","downloadUrl":"https://.../DAYANClock-Setup-1.5.1-x64.exe","sha256":"...","notes":"..."}`。发现更高版本后，程序只显示“确定更新”，下载、校验并重启安装。
 
-当前仓库为 Private，普通安装包不能匿名访问 GitHub API 或 Release 资产。正式给普通用户启用自动更新时，应将 `DAYAN_UPDATE_MANIFEST_URL` 指向带权限控制的更新清单和下载代理，或将发布渠道改为公开更新源；不要把 GitHub Token 编译进客户端。`DAYAN_GITHUB_TOKEN` 只适合受控的内部部署环境。
+当前仓库为 Public，普通安装包可以匿名访问 GitHub API 和 Release 资产，默认自动更新可直接使用。若部署到自有镜像或需要权限控制的渠道，可将 `DAYAN_UPDATE_MANIFEST_URL` 指向更新清单和下载代理；不要把 GitHub Token 编译进客户端。`DAYAN_GITHUB_TOKEN` 只适合受控的内部部署环境。

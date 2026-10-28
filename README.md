@@ -2,7 +2,7 @@
 
 用于培训展示、直播计时和桌面屏保的离线桌面工具。打开即显示电脑本地时间，可切换秒表、倒计时和正计时；提供十四种显示样式、二十张本地壁纸、日期与黄历，以及密码锁定展示模式。
 
-当前版本：**1.5.0**。本仓库为私有代码与安装包备份，供获授权的维护者访问。
+当前版本：**1.5.0**。本仓库与 Release 已设为公开，代码、素材、文档和 Windows 安装包可直接访问。
 
 [下载安装包](https://github.com/jyan5334-lab/dayan-clock/releases/latest) · [使用说明](docs/user-guide.md) · [部署与构建](docs/deployment.md) · [换电脑与远程维护](docs/maintenance.md) · [更新记录](CHANGELOG.md)
 
@@ -48,7 +48,7 @@
 
 顶部“设置”始终是未锁定状态下的入口，菜单包含“一键授权”“老黄历”“开机自启动”和“关于我们”。安装或从旧版升级后首次启动自动打开设置；每次启动仍会检测系统与策略。关于我们中标注归属公司为昆明迅琰网络科技有限公司。
 
-启动时会检查更新；发现新版本后只允许执行“确定更新”，程序会下载 Windows 安装包、校验并重启安装。GitHub 私有仓库不能被普通用户匿名访问，正式交付自动更新时需配置 `DAYAN_UPDATE_MANIFEST_URL` 指向受控更新清单或认证代理；不能把 GitHub Token 直接写进安装包。
+启动时会检查更新；发现新版本后只允许执行“确定更新”，程序会从公开 GitHub Release 下载 Windows 安装包、校验并重启安装。需要使用自有镜像或受控更新渠道时，可配置 `DAYAN_UPDATE_MANIFEST_URL`；不能把 GitHub Token 直接写进安装包。
 
 ![Windows 自检和一键引导授权](docs/screenshots/settings-800.png)
 
@@ -146,4 +146,4 @@ package-lock.json  固定依赖版本
 
 本地设置默认位于 `%APPDATA%\DAYAN时钟\preferences.json`，卸载时保留。GitHub 保存程序和素材，不会自动备份个人设置、密码或系统策略。换电脑时按 [迁移说明](docs/maintenance.md) 操作，旧电脑的策略备份不可在新电脑还原。
 
-动态壁纸当前尚未作为产品功能交付，媒体层已为后续扩展预留。代码与原始素材为私有项目内容，见 [许可说明](LICENSE)；第三方组件见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+动态壁纸当前尚未作为产品功能交付，媒体层已为后续扩展预留。代码与原始素材随公开仓库维护，使用范围见 [许可说明](LICENSE)；第三方组件见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
