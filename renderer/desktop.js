@@ -29,9 +29,29 @@
   const policyRestore = document.getElementById('policy-restore');
   const policyError = document.getElementById('policy-error');
   const settingsPassword = document.getElementById('settings-password');
+  const settingsTabs = [...document.querySelectorAll('[data-settings-tab]')];
+  const settingsPanels = [...document.querySelectorAll('[data-settings-panel]')];
+  const settingsFooters = [...document.querySelectorAll('[data-settings-footer]')];
+  const showAlmanac = document.getElementById('show-almanac');
+  const modeVisibility = [...document.querySelectorAll('[data-mode-visibility]')];
+  const autoStart = document.getElementById('auto-start');
+  const autoStartStatus = document.getElementById('auto-start-status');
+  const aboutVersion = document.getElementById('about-version');
+  const checkUpdate = document.getElementById('check-update');
+  const updateCheckStatus = document.getElementById('update-check-status');
+  const updateModal = document.getElementById('update-modal');
+  const updateVersion = document.getElementById('update-version');
+  const updateNotes = document.getElementById('update-notes');
+  const updateProgressWrap = document.getElementById('update-progress-wrap');
+  const updateProgressBar = document.getElementById('update-progress-bar');
+  const updateProgressText = document.getElementById('update-progress-text');
+  const updateConfirm = document.getElementById('update-confirm');
+  const updateError = document.getElementById('update-error');
   let policyRequest, policyBusy = false, lastPolicy, returnToSettings = false;
   let chromeTimer;
   let style = 1, widget;
+  let displaySettings = { showAlmanac: true, modes: { clock: false, watch: true, down: true, up: true } };
+  let autoStartEnabled = true;
   let security = { passwordConfigured: false, locked: false };
 
   const fit = () => {
@@ -110,11 +130,32 @@
       .finally(() => { policyRequest = null; policyRefresh.disabled = false; });
     return policyRequest;
   };
+  const normalizeDisplaySettings = value => {
+    const modes = value?.modes && typeof value.modes === 'object' ? value.modes : {};
+    return { showAlmanac: value?.showAlmanac !== false, modes: { clock: modes.clock === true, watch: modes.watch !== false, down: modes.down !== false, up: modes.up !== false } };
+  };
+  const selectSettingsTab = name => {
+    const selected = settingsTabs.some(tab => tab.dataset.settingsTab === name) ? name : 'policy';
+    settingsTabs.forEach(tab => tab.setAttribute('aria-selected', String(tab.dataset.settingsTab === selected)));
+    settingsPanels.forEach(panel => { panel.hidden = panel.dataset.settingsPanel !== selected; });
+    settingsFooters.forEach(footer => { footer.hidden = footer.dataset.settingsFooter !== selected; });
+  };
+  const syncDisplaySettings = () => {
+    window.dayanDisplaySettings = displaySettings;
+    showAlmanac.checked = displaySettings.showAlmanac;
+    modeVisibility.forEach(input => { input.checked = displaySettings.modes[input.dataset.modeVisibility] !== false; });
+    document.getElementById('simple-timers').dispatchEvent(new CustomEvent('dayan:display-settings', { detail: displaySettings }));
+  };
+  const syncAutoStart = () => {
+    autoStart.checked = autoStartEnabled;
+    autoStartStatus.textContent = autoStartEnabled ? '当前状态：已开启' : '当前状态：已关闭';
+  };
   const openSettings = (refresh = true) => {
     if (security.locked) return;
     closeMenu();
     securityModal.hidden = true;
     settingsModal.hidden = false;
+    selectSettingsTab('policy');
     settingsToggle.setAttribute('aria-expanded', 'true');
     settingsClose.focus();
     lucide.createIcons();
@@ -195,10 +236,10 @@
     document.documentElement.dataset.style = String(style);
     document.getElementById('simple-timers').dispatchEvent(new Event('dayan:refresh'));
   };
-  const save = () => bridge.save({ widget, style });
+  const save = () => bridge.save({ widget, style, displaySettings, autoStart: autoStartEnabled });
   addEventListener('beforeunload', () => {
     document.getElementById('simple-timers').dispatchEvent(new Event('dayan:checkpoint'));
-    bridge.saveSync({ widget, style });
+    bridge.saveSync({ widget, style, displaySettings, autoStart: autoStartEnabled });
   });
 
   const syncWindow = state => {
@@ -232,6 +273,18 @@
   securityClose.addEventListener('click', closeSecurityModal);
   settingsToggle.addEventListener('click', () => openSettings());
   settingsClose.addEventListener('click', closeSettings);
+  settingsTabs.forEach(tab => tab.addEventListener('click', () => { selectSettingsTab(tab.dataset.settingsTab); if (tab.dataset.settingsTab === 'policy') refreshPolicy(); }));
+  showAlmanac.addEventListener('change', () => { displaySettings = { ...displaySettings, showAlmanac: showAlmanac.checked }; syncDisplaySettings(); save(); });
+  modeVisibility.forEach(input => input.addEventListener('change', () => { displaySettings = { ...displaySettings, modes: { ...displaySettings.modes, [input.dataset.modeVisibility]: input.checked } }; syncDisplaySettings(); save(); }));
+  autoStart.addEventListener('change', async () => {
+    const requested = autoStart.checked;
+    autoStart.disabled = true;
+    const result = await bridge.setAutoStart(requested);
+    autoStart.disabled = false;
+    if (!result?.ok) { autoStart.checked = autoStartEnabled; autoStartStatus.textContent = result?.error || '开机自启动设置失败'; return; }
+    autoStartEnabled = result.enabled !== false;
+    syncAutoStart(); save();
+  });
   policyRefresh.addEventListener('click', refreshPolicy);
   document.getElementById('security-open-settings').addEventListener('click', () => openSettings());
   settingsPassword.addEventListener('click', () => {
@@ -264,6 +317,46 @@
   };
   policyEnable.addEventListener('click', () => runPolicyAction('enable'));
   policyRestore.addEventListener('click', () => runPolicyAction('restore'));
+  checkUpdate.addEventListener('click', async () => {
+    checkUpdate.disabled = true; updateCheckStatus.textContent = '正在检查更新…';
+    const result = await bridge.updateCheck();
+    checkUpdate.disabled = false;
+    if (result?.available) updateCheckStatus.textContent = `发现 ${result.version}，请按提示更新`;
+    else updateCheckStatus.textContent = result?.error || `当前已是最新版本（${result?.currentVersion || '未知'}）`;
+  });
+  const showUpdate = info => {
+    updateVersion.textContent = `当前版本 ${info.currentVersion || '—'} · 新版本 ${info.version}`;
+    updateNotes.textContent = info.notes || '新版本已准备好，更新完成后程序会自动重新打开。';
+    updateError.hidden = true;
+    updateProgressWrap.hidden = true;
+    updateConfirm.disabled = false;
+    updateConfirm.querySelector('span').textContent = '确定更新';
+    updateModal.hidden = false;
+    lucide.createIcons();
+  };
+  bridge.onUpdateAvailable(showUpdate);
+  bridge.onUpdateProgress(progress => {
+    updateProgressWrap.hidden = false;
+    updateProgressBar.style.width = `${Math.round(progress.percent || 0)}%`;
+    updateProgressText.textContent = progress.total ? `正在下载 ${Math.round(progress.percent)}%` : '正在下载更新…';
+  });
+  bridge.onUpdateError(error => {
+    updateError.textContent = error?.message || '更新失败，请稍后重试';
+    updateError.hidden = false;
+    updateConfirm.disabled = false;
+    updateConfirm.querySelector('span').textContent = '重新更新';
+  });
+  updateConfirm.addEventListener('click', async () => {
+    updateConfirm.disabled = true;
+    updateConfirm.querySelector('span').textContent = '正在准备更新…';
+    const result = await bridge.updateInstall();
+    if (!result?.ok) {
+      updateError.textContent = result?.error || '更新失败，请稍后重试';
+      updateError.hidden = false;
+      updateConfirm.disabled = false;
+      updateConfirm.querySelector('span').textContent = '重新更新';
+    }
+  });
   securityForm.addEventListener('submit', async event => {
     event.preventDefault();
     clearSecurityError(securityError);
@@ -289,7 +382,7 @@
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && !settingsModal.hidden) { closeSettings(); event.preventDefault(); return; }
     if (event.key === 'Tab' && !settingsModal.hidden) {
-      const buttons = [...settingsModal.querySelectorAll('button:not(:disabled)')];
+      const buttons = [...settingsModal.querySelectorAll('button:not(:disabled),input:not(:disabled)')].filter(element => !element.hidden);
       const first = buttons[0], last = buttons.at(-1);
       if (event.shiftKey && document.activeElement === first) { last.focus(); event.preventDefault(); }
       else if (!event.shiftKey && document.activeElement === last) { first.focus(); event.preventDefault(); }
@@ -322,7 +415,12 @@
 
   bridge.load().then(saved => {
     widget = saved?.widget;
+    displaySettings = normalizeDisplaySettings(saved?.displaySettings);
+    autoStartEnabled = saved?.autoStart !== false;
+    syncDisplaySettings();
+    syncAutoStart();
     document.getElementById('system-app-version').textContent = saved?.appVersion || '未知';
+    aboutVersion.textContent = `当前版本：${saved?.appVersion || '未知'}`;
     selectStyle(Number.isInteger(saved?.style) ? saved.style : 1);
     window.openai = { widgetState: widget, setWidgetState: next => { widget = next; return save(); } };
     syncWindow(saved || { pinned: false, fullscreen: false, passwordConfigured: false, locked: false });

@@ -75,7 +75,7 @@ $lines | Set-Content -LiteralPath "release/SHA256SUMS-$version.txt" -Encoding as
 6. 上传安装包、标签源码 ZIP 和 SHA-256 清单，确认后发布。安装包未签名时如实标注。
 7. 重新下载并核对 SHA-256，确认 Release 可通过获授权账号访问，仓库仍为 Private。
 
-安装包通过 Release 保存，不加入 Git 历史。依赖由锁文件恢复，不上传 `node_modules`。当前应用不包含自动更新服务，用户通过 Release 下载并运行新安装包升级。
+安装包通过 Release 保存，不加入 Git 历史。依赖由锁文件恢复，不上传 `node_modules`。应用已包含启动检查、强制更新提示、下载校验和重启安装流程；由于本仓库为 Private，普通用户需要配置 `DAYAN_UPDATE_MANIFEST_URL` 及其下载代理后才能实际访问更新源，不能把 GitHub Token 写进客户端。
 
 ## 问题排查
 

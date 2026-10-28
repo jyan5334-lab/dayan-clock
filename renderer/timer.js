@@ -14,6 +14,7 @@
   }
   const models=[];let sharedState;
   let lastSave='';
+  let displaySettings=window.dayanDisplaySettings||{showAlmanac:true,modes:{clock:false,watch:true,down:true,up:true}};
   const pad=n=>String(n).padStart(2,'0');
   const icon=name=>`<i data-lucide="${name}" aria-hidden="true"></i>`;
   const refresh=()=>{if(globalThis.lucide)globalThis.lucide.createIcons({attrs:{width:16,height:16}});};
@@ -30,7 +31,7 @@
   Array.from(root.children).forEach((section,i)=>{
     const s=sharedState||(sharedState={mode:'up',clock:true,background:backgrounds[1]?.id||'original',target:300000,elapsed:0,running:false,anchor:0});
     const ring=variants[i]==='orbit'?'<svg class="ring" viewBox="0 0 240 240" aria-label="时间进度" role="img"><circle class="ticks" cx="120" cy="120" r="117"/><circle class="track" cx="120" cy="120" r="110"/><circle class="inner-track" cx="120" cy="120" r="98"/><circle class="arc" cx="120" cy="120" r="110"/></svg><span class="marker" aria-hidden="true"></span>':'';
-    section.innerHTML=`<div class="timer ${variants[i]}" aria-label="${section.dataset.variant}"><header><div class="brand">${icon('timer')}<span>计时器</span></div><div class="modes" role="group" aria-label="显示模式"><button class="cursor-interaction" type="button" data-mode="up">正计时</button><button class="cursor-interaction" type="button" data-mode="down">倒计时</button><button class="cursor-interaction" type="button" data-mode="watch">秒表</button><button class="cursor-interaction" type="button" data-mode="clock">时钟</button></div></header><div class="display">${ring}<div class="readout" role="timer" aria-label="时间"><span class="digits">00:00</span><span class="fraction" hidden>.00</span></div><time class="date" hidden></time><span class="status" aria-live="polite">准备就绪</span></div><div class="settings"><label hidden><input type="number" class="minutes" min="0" max="5999" step="1" value="5" aria-label="分钟"> 分</label><label hidden><input type="number" class="seconds" min="0" max="59" step="1" value="0" aria-label="秒"> 秒</label></div><div class="actions"><button type="button" class="action primary cursor-interaction" data-action="toggle">${icon('play')}<span>开始</span></button><button type="button" class="action reset cursor-interaction" data-action="reset" aria-label="重置" data-tooltip="重置">${icon('rotate-ccw')}</button></div><div class="error" role="alert"></div><div class="background-tools"><button type="button" class="background-toggle cursor-interaction" data-background-toggle aria-label="选择背景" data-tooltip="选择背景" aria-expanded="false" aria-controls="background-picker-${i}">${icon('image')}</button></div><div class="background-picker" id="background-picker-${i}" role="dialog" aria-label="背景选择" hidden><div class="picker-heading"><span>背景</span><button type="button" class="picker-close cursor-interaction" data-background-close aria-label="关闭背景选择">${icon('x')}</button></div><div class="background-grid">${backgrounds.map(b=>`<button type="button" class="background-choice cursor-interaction" data-background="${b.id}" aria-label="${b.label}" aria-pressed="false"><img src="${b.src}" alt="" loading="lazy"><span>${b.label}</span></button>`).join('')}</div><button type="button" class="original-background cursor-interaction" data-background="original" aria-pressed="false">${icon('rotate-ccw')}<span>原始背景</span></button></div></div>`;
+    section.innerHTML=`<div class="timer ${variants[i]}" aria-label="${section.dataset.variant}"><header><div class="brand">${icon('timer')}<span>计时器</span></div><div class="modes" role="group" aria-label="显示模式"><button class="cursor-interaction" type="button" data-mode="up"><span class="mode-label">正计时</span></button><button class="cursor-interaction" type="button" data-mode="down"><span class="mode-label">倒计时</span></button><button class="cursor-interaction" type="button" data-mode="watch"><span class="mode-label">秒表</span></button><button class="cursor-interaction" type="button" data-mode="clock"><span class="mode-label">时钟</span></button></div></header><div class="display">${ring}<div class="readout" role="timer" aria-label="时间"><span class="digits">00:00</span><span class="fraction" hidden>.00</span></div><time class="date" hidden></time><span class="status" aria-live="polite">准备就绪</span></div><div class="settings"><label hidden><input type="number" class="minutes" min="0" max="5999" step="1" value="5" aria-label="分钟"> 分</label><label hidden><input type="number" class="seconds" min="0" max="59" step="1" value="0" aria-label="秒"> 秒</label></div><div class="actions"><button type="button" class="action primary cursor-interaction" data-action="toggle">${icon('play')}<span>开始</span></button><button type="button" class="action reset cursor-interaction" data-action="reset" aria-label="重置" data-tooltip="重置">${icon('rotate-ccw')}</button></div><div class="error" role="alert"></div><div class="background-tools"><button type="button" class="background-toggle cursor-interaction" data-background-toggle aria-label="选择背景" data-tooltip="选择背景" aria-expanded="false" aria-controls="background-picker-${i}">${icon('image')}</button></div><div class="background-picker" id="background-picker-${i}" role="dialog" aria-label="背景选择" hidden><div class="picker-heading"><span>背景</span><button type="button" class="picker-close cursor-interaction" data-background-close aria-label="关闭背景选择">${icon('x')}</button></div><div class="background-grid">${backgrounds.map(b=>`<button type="button" class="background-choice cursor-interaction" data-background="${b.id}" aria-label="${b.label}" aria-pressed="false"><img src="${b.src}" alt="" loading="lazy"><span>${b.label}</span></button>`).join('')}</div><button type="button" class="original-background cursor-interaction" data-background="original" aria-pressed="false">${icon('rotate-ccw')}<span>原始背景</span></button></div></div>`;
     const app=section.querySelector('.timer'),q=sel=>app.querySelector(sel);
     app.insertAdjacentHTML('afterbegin','<div class="wallpaper-media" aria-hidden="true"></div>');
     q('.date').insertAdjacentHTML('afterend','<div class="almanac" hidden aria-label="今日黄历"><div class="almanac-main"><span class="almanac-lunar"></span><span class="almanac-day"></span></div><div class="almanac-note"></div><div class="almanac-row"><span class="almanac-label good">宜</span><span data-almanac-yi></span></div><div class="almanac-row"><span class="almanac-label avoid">忌</span><span data-almanac-ji></span></div></div>');
@@ -76,10 +77,11 @@
       q('.date').hidden=!s.clock;
       if(s.clock){
         const year=now.getFullYear(),month=pad(now.getMonth()+1),day=pad(now.getDate());
-        q('.date').textContent=`${year}年 ${month}月 ${day}日`;
+        const weekdays=['日','一','二','三','四','五','六'];
+        q('.date').textContent=`${year}年 ${month}月 ${day}日 · 星期${weekdays[now.getDay()]}`;
         q('.date').setAttribute('datetime',`${year}-${month}-${day}`);
         const almanac=window.dayanAlmanac?.(now);
-        q('.almanac').hidden=!almanac;
+        q('.almanac').hidden=!almanac||displaySettings.showAlmanac===false;
         if(almanac){
           q('.almanac-lunar').textContent=almanac.lunar;
           q('.almanac-day').textContent=almanac.day;
@@ -88,7 +90,7 @@
           q('[data-almanac-ji]').textContent=almanac.ji.join(' · ');
         }
       }
-      q('.almanac').hidden=!s.clock;
+      q('.almanac').hidden=!s.clock||displaySettings.showAlmanac===false;
       const status=s.clock?'':ended?'时间到':s.running?'计时中':total>0?'已暂停':'准备就绪';
       q('.status').hidden=s.clock;
       if(lastStatus!==status){q('.status').textContent=status;lastStatus=status;}
@@ -96,7 +98,7 @@
       if(lastAction!==actionKey){q('[data-action="toggle"]').innerHTML=icon(s.running?'pause':'play')+`<span>${s.running?'暂停':total>0?'继续':'开始'}</span>`;lastAction=actionKey;refresh();}
       q('[data-action="toggle"]').disabled=ended;
       app.classList.toggle('running',s.running&&!s.clock);
-      app.querySelectorAll('[data-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.mode===(s.clock?'clock':s.mode))));
+      app.querySelectorAll('[data-mode]').forEach(button=>{const visible=displaySettings.modes[button.dataset.mode]!==false;button.classList.toggle('mode-label-hidden',!visible);button.setAttribute('aria-label',visible?button.textContent.trim():`${button.textContent.trim()}（文字已隐藏）`);button.setAttribute('aria-pressed',String(button.dataset.mode===(s.clock?'clock':s.mode)));});
       app.querySelectorAll('.settings label').forEach(label=>label.hidden=s.clock||s.mode!=='down');
       app.querySelectorAll('[data-action]').forEach(button=>button.hidden=s.clock);
       app.querySelectorAll('input').forEach(input=>input.disabled=s.running);
@@ -148,6 +150,7 @@
     }
   });
   root.addEventListener('dayan:refresh',()=>models.forEach(model=>model.render()));
+  root.addEventListener('dayan:display-settings',event=>{displaySettings=event.detail||displaySettings;models.forEach(model=>model.render());});
   root.addEventListener('dayan:checkpoint',save);
   refresh();
   const ticker=setInterval(()=>{if(!root.isConnected){clearInterval(ticker);return;}if(sharedState.running||sharedState.clock)models.filter(m=>!m.section.hidden).forEach(m=>m.render());},40);

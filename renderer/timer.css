@@ -9,6 +9,7 @@
 #simple-timers button { font:inherit; }
 #simple-timers .modes button { color:var(--muted); background:transparent; border:0; border-bottom:2px solid transparent; padding:7px 10px; min-height:38px; white-space:nowrap; font-size:12px; }
 #simple-timers .modes [aria-pressed="true"] { color:var(--accent); border-bottom-color:var(--accent); }
+#simple-timers .modes button.mode-label-hidden .mode-label { visibility:hidden; }
 #simple-timers .display { height:255px; display:flex; flex-direction:column; justify-content:center; align-items:center; position:relative; }
 #simple-timers .readout { display:flex; justify-content:center; align-items:baseline; position:relative; color:var(--accent); font:700 112px/1.2 Consolas,"Courier New",monospace; font-variant-numeric:tabular-nums; white-space:nowrap; }
 #simple-timers .readout.hours { font-size:76px; }

@@ -10,11 +10,11 @@
 
 ## 安装包校验
 
-同一 Release 下载 `SHA256SUMS-1.4.1.txt` 与安装包，在下载目录运行：
+同一 Release 下载 `SHA256SUMS-1.5.0.txt` 与安装包，在下载目录运行：
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\DAYANClock-Setup-1.4.1-x64.exe
-Get-FileHash -Algorithm SHA256 .\DAYANClock-Source-1.4.1.zip
+Get-FileHash -Algorithm SHA256 .\DAYANClock-Setup-1.5.0-x64.exe
+Get-FileHash -Algorithm SHA256 .\DAYANClock-Source-1.5.0.zip
 ```
 
 将输出与校验文件逐项比较。安装包暂未签名，可能出现未知发布者提示；校验值用于确认文件与该版本资产一致，不代替代码签名。
@@ -62,3 +62,9 @@ npm run dist:mac
 先运行 `npm run check`，再按 [桌面验收清单](verification.md) 在开发模式与实际打包程序中检查。需要写入系统策略的测试应在专用测试用户或虚拟机执行，确认可以恢复。
 
 更新版本时同步 `package.json`、`package-lock.json` 与 `CHANGELOG.md`，提交后创建对应 `v<版本>` 标签。将安装包、从标签导出的源码 ZIP 和 SHA-256 文件上传至该标签的 Release，核对资产完整后发布。详细步骤见 [维护说明](maintenance.md#发布新版本)。
+
+## 自动更新
+
+启动时由 Electron 主进程检查 GitHub Release 或自定义 JSON 更新清单。Release 数据需包含 `tag_name`、匹配版本的 `DAYANClock-Setup-<版本>-x64.exe` 资产和可选的 SHA-256 摘要；自定义清单格式为 `{"version":"1.5.1","downloadUrl":"https://.../DAYANClock-Setup-1.5.1-x64.exe","sha256":"...","notes":"..."}`。发现更高版本后，程序只显示“确定更新”，下载、校验并重启安装。
+
+当前仓库为 Private，普通安装包不能匿名访问 GitHub API 或 Release 资产。正式给普通用户启用自动更新时，应将 `DAYAN_UPDATE_MANIFEST_URL` 指向带权限控制的更新清单和下载代理，或将发布渠道改为公开更新源；不要把 GitHub Token 编译进客户端。`DAYAN_GITHUB_TOKEN` 只适合受控的内部部署环境。

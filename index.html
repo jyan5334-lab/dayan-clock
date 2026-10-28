@@ -75,30 +75,74 @@
       <p id="security-error" class="security-error" role="alert" hidden></p>
     </div>
   </div>
+  <div id="update-modal" hidden role="dialog" aria-modal="true" aria-labelledby="update-title">
+    <div class="update-panel">
+      <div class="security-panel-icon"><i data-lucide="download-cloud"></i></div>
+      <strong id="update-title">有新版本需要更新</strong>
+      <p id="update-version"></p>
+      <p id="update-notes" class="update-notes"></p>
+      <div id="update-progress-wrap" hidden><div class="update-progress"><span id="update-progress-bar"></span></div><p id="update-progress-text">准备下载…</p></div>
+      <button id="update-confirm" class="update-confirm" type="button"><i data-lucide="download"></i><span>确定更新</span></button>
+      <p id="update-error" class="security-error" role="alert" hidden></p>
+    </div>
+  </div>
   <div id="settings-modal" hidden role="dialog" aria-modal="true" aria-labelledby="settings-title">
     <div class="settings-panel">
       <header class="settings-header"><h2 id="settings-title">设置</h2><button id="settings-close" class="settings-icon" type="button" aria-label="关闭设置" title="关闭设置"><i data-lucide="x"></i></button></header>
+      <nav class="settings-tabs" role="tablist" aria-label="设置菜单">
+        <button type="button" role="tab" aria-selected="true" aria-controls="settings-policy" data-settings-tab="policy"><i data-lucide="shield-check"></i><span>一键授权</span></button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="settings-almanac" data-settings-tab="almanac"><i data-lucide="calendar-days"></i><span>老黄历</span></button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="settings-autostart" data-settings-tab="autostart"><i data-lucide="power"></i><span>开机自启动</span></button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="settings-about" data-settings-tab="about"><i data-lucide="info"></i><span>关于我们</span></button>
+      </nav>
       <div class="settings-body">
-        <div class="settings-heading"><strong>系统自检</strong><button id="policy-refresh" class="settings-icon" type="button" aria-label="重新检测" title="重新检测"><i data-lucide="refresh-cw"></i></button></div>
-        <dl class="system-details">
-          <div><dt>Windows 版本</dt><dd id="system-version">检测中…</dd></div>
-          <div><dt>系统架构</dt><dd id="system-architecture">检测中…</dd></div>
-          <div><dt>软件版本</dt><dd id="system-app-version">—</dd></div>
-          <div><dt>检测时间</dt><dd id="system-checked-at">检测中…</dd></div>
-        </dl>
-        <div class="policy-guide-head"><strong>Windows 锁屏保护</strong><span id="policy-status" data-state="checking" role="status">检测中</span></div>
-        <p id="policy-description">正在检查当前 Windows 用户的系统策略。</p>
-        <ul class="policy-details" aria-label="锁屏策略检测结果">
-          <li><span>任务管理器限制</span><span data-policy="DisableTaskMgr">检测中</span></li>
-          <li><span>系统锁定入口限制</span><span data-policy="DisableLockWorkstation">检测中</span></li>
-          <li><span>修改密码入口限制</span><span data-policy="DisableChangePassword">检测中</span></li>
-          <li><span>Windows 常用快捷键限制</span><span data-policy="NoWinKeys">检测中</span></li>
-          <li><span>注销入口限制</span><span data-policy="NoLogoff">检测中</span></li>
-        </ul>
-        <p class="policy-notice">此操作将持续限制当前 Windows 用户的上述系统入口，时钟解锁后仍保留。可通过“恢复原有策略”撤销。Ctrl+Alt+Delete 安全界面仍由 Windows 管理。</p>
-        <p id="policy-error" class="security-error" role="alert" hidden></p>
+        <section id="settings-policy" class="settings-section" data-settings-panel="policy" role="tabpanel">
+          <div class="settings-heading"><strong>系统自检</strong><button id="policy-refresh" class="settings-icon" type="button" aria-label="重新检测" title="重新检测"><i data-lucide="refresh-cw"></i></button></div>
+          <dl class="system-details">
+            <div><dt>Windows 版本</dt><dd id="system-version">检测中…</dd></div>
+            <div><dt>系统架构</dt><dd id="system-architecture">检测中…</dd></div>
+            <div><dt>软件版本</dt><dd id="system-app-version">—</dd></div>
+            <div><dt>检测时间</dt><dd id="system-checked-at">检测中…</dd></div>
+          </dl>
+          <div class="policy-guide-head"><strong>Windows 锁屏保护</strong><span id="policy-status" data-state="checking" role="status">检测中</span></div>
+          <p id="policy-description">正在检查当前 Windows 用户的系统策略。</p>
+          <ul class="policy-details" aria-label="锁屏策略检测结果">
+            <li><span>任务管理器限制</span><span data-policy="DisableTaskMgr">检测中</span></li>
+            <li><span>系统锁定入口限制</span><span data-policy="DisableLockWorkstation">检测中</span></li>
+            <li><span>修改密码入口限制</span><span data-policy="DisableChangePassword">检测中</span></li>
+            <li><span>Windows 常用快捷键限制</span><span data-policy="NoWinKeys">检测中</span></li>
+            <li><span>注销入口限制</span><span data-policy="NoLogoff">检测中</span></li>
+          </ul>
+          <p class="policy-notice">此操作将持续限制当前 Windows 用户的上述系统入口，时钟解锁后仍保留。可通过“恢复原有策略”撤销。Ctrl+Alt+Delete 安全界面仍由 Windows 管理。</p>
+          <p id="policy-error" class="security-error" role="alert" hidden></p>
+        </section>
+        <section id="settings-almanac" class="settings-section" data-settings-panel="almanac" role="tabpanel" hidden>
+          <div class="settings-heading"><strong>老黄历显示</strong></div>
+          <p>控制时钟页面中的老黄历内容和右上角模式文字显示。</p>
+          <label class="setting-check"><input id="show-almanac" type="checkbox"><span>显示老黄历内容</span></label>
+          <div class="settings-subheading">右上角模式文字</div>
+          <label class="setting-check"><input type="checkbox" data-mode-visibility="clock"><span>显示“时钟”</span><small>默认关闭，时钟仍默认进入</small></label>
+          <label class="setting-check"><input type="checkbox" data-mode-visibility="watch"><span>显示“秒表”</span></label>
+          <label class="setting-check"><input type="checkbox" data-mode-visibility="down"><span>显示“倒计时”</span></label>
+          <label class="setting-check"><input type="checkbox" data-mode-visibility="up"><span>显示“正计时”</span></label>
+        </section>
+        <section id="settings-autostart" class="settings-section" data-settings-panel="autostart" role="tabpanel" hidden>
+          <div class="settings-heading"><strong>开机自启动</strong></div>
+          <p>登录 Windows 后自动启动 DAYAN时钟。安装完成后默认开启，可随时关闭。</p>
+          <label class="setting-check setting-check-large"><input id="auto-start" type="checkbox"><span>登录系统后自动启动</span></label>
+          <p id="auto-start-status" class="settings-hint"></p>
+        </section>
+        <section id="settings-about" class="settings-section about-section" data-settings-panel="about" role="tabpanel" hidden>
+          <div class="about-mark"><i data-lucide="timer"></i></div>
+          <strong>DAYAN时钟</strong>
+          <p>一款用于桌面展示、培训计时和直播计时的本地桌面工具。</p>
+          <p class="about-company">昆明迅琰网络科技有限公司</p>
+          <p id="about-version" class="settings-hint">当前版本：—</p>
+          <button id="check-update" class="policy-secondary" type="button"><i data-lucide="refresh-cw"></i><span>检查更新</span></button>
+          <p id="update-check-status" class="settings-hint" role="status"></p>
+        </section>
       </div>
-      <footer class="settings-footer">
+      <footer class="settings-footer" data-settings-footer="policy">
         <p id="policy-support">一键授权适配范围：Windows 10 / Windows 11（x64），需管理员批准且系统策略允许。其他版本和架构暂未验证。</p>
         <p class="policy-permission-note">授权将持续限制当前用户的系统入口，时钟解锁后仍保留，可在此恢复。</p>
         <button id="policy-enable" class="policy-enable" type="button" disabled><i data-lucide="shield-check"></i><span>一键引导授权</span></button>

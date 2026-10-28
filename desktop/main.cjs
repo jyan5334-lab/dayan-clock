@@ -9,10 +9,121 @@ app.setName('DAYAN时钟');
 app.setAppUserModelId('com.dayan.clock');
 if (process.env.DAYAN_TEST === '1' && process.env.DAYAN_TEST_DATA) app.setPath('userData', process.env.DAYAN_TEST_DATA);
 const PASSWORD_ITERATIONS = 210000;
+const UPDATE_REPOSITORY_API = 'https://api.github.com/repos/jyan5334-lab/dayan-clock/releases/latest';
+const DEFAULT_DISPLAY_SETTINGS = Object.freeze({ showAlmanac: true, modes: Object.freeze({ clock: false, watch: true, down: true, up: true }) });
 let mainWindow, state = {}, resizeSession, saveTimer, securityLocked = false, quitting = false;
 let windowedBounds, presentationRequested = false, restoringBounds = false, restoreBoundsTimer;
+let updateInfo = null, updateBusy = false, updateCheckPromise;
 const stateFile = () => path.join(app.getPath('userData'), 'preferences.json');
 const lockdownScript = () => path.join(__dirname, '../scripts/enable-dayan-lockdown.ps1');
+
+function normalizeDisplaySettings(value) {
+  const modes = value?.modes && typeof value.modes === 'object' ? value.modes : {};
+  return { showAlmanac: value?.showAlmanac !== false, modes: { clock: modes.clock === true, watch: modes.watch !== false, down: modes.down !== false, up: modes.up !== false } };
+}
+
+function applyAutoStart(enabled) {
+  const value = enabled !== false;
+  if (process.env.DAYAN_TEST === '1') return value;
+  try { app.setLoginItemSettings({ openAtLogin: value, path: process.execPath, args: [] }); }
+  catch (error) { console.error('Unable to configure auto-start:', error.message); }
+  return value;
+}
+
+function normalizeVersion(value) {
+  const match = String(value || '').trim().replace(/^v/i, '').match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
+  return match ? [Number(match[1]), Number(match[2] || 0), Number(match[3] || 0)] : null;
+}
+
+function isNewerVersion(remote, local) {
+  const a = normalizeVersion(remote), b = normalizeVersion(local);
+  if (!a || !b) return false;
+  for (let i = 0; i < 3; i++) { if (a[i] !== b[i]) return a[i] > b[i]; }
+  return false;
+}
+
+function updateHeaders() {
+  const headers = { Accept: 'application/vnd.github+json', 'User-Agent': 'DAYANClock-Updater', 'X-GitHub-Api-Version': '2022-11-28' };
+  if (process.env.DAYAN_GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.DAYAN_GITHUB_TOKEN}`;
+  return headers;
+}
+
+function normalizeUpdatePayload(payload) {
+  if (payload?.tag_name || payload?.name) {
+    const version = String(payload.tag_name || payload.name).replace(/^v/i, '');
+    const asset = Array.isArray(payload.assets) ? payload.assets.find(item => item.name === `DAYANClock-Setup-${version}-x64.exe`) : null;
+    if (!asset?.browser_download_url) return null;
+    return { version, title: payload.name || `DAYAN时钟 ${version}`, notes: String(payload.body || '').trim(), publishedAt: payload.published_at || payload.created_at || '', downloadUrl: asset.browser_download_url, sha256: typeof asset.digest === 'string' ? asset.digest.replace(/^sha256:/i, '') : '', size: Number(asset.size) || 0, releaseUrl: payload.html_url || '' };
+  }
+  if (payload?.version && payload?.downloadUrl) return { version: String(payload.version).replace(/^v/i, ''), title: payload.title || `DAYAN时钟 ${payload.version}`, notes: String(payload.notes || '').trim(), publishedAt: payload.publishedAt || '', downloadUrl: String(payload.downloadUrl), sha256: String(payload.sha256 || '').replace(/^sha256:/i, ''), size: Number(payload.size) || 0, releaseUrl: String(payload.releaseUrl || '') };
+  return null;
+}
+
+async function checkForUpdates({ notifyRenderer = true } = {}) {
+  if (updateCheckPromise) return updateCheckPromise;
+  if (process.env.DAYAN_TEST === '1' && !process.env.DAYAN_TEST_UPDATE_URL) return { available: false, skipped: true, currentVersion: app.getVersion() };
+  updateCheckPromise = (async () => {
+    const endpoint = process.env.DAYAN_TEST_UPDATE_URL || process.env.DAYAN_UPDATE_MANIFEST_URL || UPDATE_REPOSITORY_API;
+    const response = await fetch(endpoint, { headers: updateHeaders(), redirect: 'follow', signal: AbortSignal.timeout(12000) });
+    if (!response.ok) throw new Error(`更新检查失败（HTTP ${response.status}）。私有仓库需要配置受控的更新清单或认证服务。`);
+    const remote = normalizeUpdatePayload(await response.json());
+    if (!remote || !isNewerVersion(remote.version, app.getVersion())) { updateInfo = null; return { available: false, currentVersion: app.getVersion(), checkedAt: new Date().toISOString() }; }
+    updateInfo = { ...remote, currentVersion: app.getVersion() };
+    if (notifyRenderer && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dayan:update-available', updateInfo);
+    return { available: true, ...updateInfo };
+  })().catch(error => {
+    if (notifyRenderer && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dayan:update-error', { message: error.message || '更新检查失败' });
+    return { available: false, error: error.message || '更新检查失败', currentVersion: app.getVersion() };
+  }).finally(() => { updateCheckPromise = null; });
+  return updateCheckPromise;
+}
+
+async function downloadAndInstallUpdate() {
+  if (!updateInfo || updateBusy) return { ok: false, error: '当前没有可安装的更新' };
+  updateBusy = true;
+  const update = updateInfo;
+  const tempDir = path.join(app.getPath('temp'), `dayan-update-${process.pid}`);
+  const installerPath = path.join(tempDir, `DAYANClock-Setup-${update.version}-x64.exe`);
+  try {
+    fs.mkdirSync(tempDir, { recursive: true });
+    const response = await fetch(update.downloadUrl, { headers: updateHeaders(), redirect: 'follow', signal: AbortSignal.timeout(600000) });
+    if (!response.ok || !response.body) throw new Error(`更新下载失败（HTTP ${response.status}）`);
+    const writer = fs.createWriteStream(installerPath);
+    const reader = response.body.getReader();
+    const hash = crypto.createHash('sha256');
+    let received = 0;
+    const total = Number(response.headers.get('content-length')) || update.size || 0;
+    const write = chunk => new Promise((resolve, reject) => {
+      if (writer.write(chunk, error => error ? reject(error) : resolve())) return;
+      writer.once('drain', resolve);
+    });
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      const chunk = Buffer.from(next.value);
+      hash.update(chunk); received += chunk.length;
+      await write(chunk);
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dayan:update-progress', { received, total, percent: total ? Math.min(100, received / total * 100) : 0 });
+    }
+    await new Promise((resolve, reject) => writer.end(error => error ? reject(error) : resolve()));
+    const actualHash = hash.digest('hex');
+    if (update.sha256 && actualHash.toLowerCase() !== update.sha256.toLowerCase()) throw new Error('更新文件校验失败，未执行安装');
+    if (process.platform !== 'win32') return { ok: false, error: '当前更新安装器仅支持 Windows' };
+    const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe');
+    const appPath = app.getPath('exe');
+    const script = `$installer=${powershellLiteral(installerPath)}; $app=${powershellLiteral(appPath)}; Start-Sleep -Milliseconds 800; $p=Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru; if ($p.ExitCode -eq 0 -and (Test-Path -LiteralPath $app)) { Start-Process -FilePath $app }; Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue`;
+    const encoded = Buffer.from(script, 'utf16le').toString('base64');
+    const child = spawn(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { detached: true, windowsHide: true, stdio: 'ignore' });
+    child.unref();
+    quitting = true;
+    app.quit();
+    return { ok: true };
+  } catch (error) {
+    try { fs.rmSync(installerPath, { force: true }); } catch {}
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dayan:update-error', { message: error.message || '更新安装失败' });
+    return { ok: false, error: error.message || '更新安装失败' };
+  } finally { updateBusy = false; }
+}
 
 function powershellLiteral(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
@@ -125,6 +236,8 @@ function readState() {
     const saved = JSON.parse(fs.readFileSync(stateFile(), 'utf8'));
     if (saved && typeof saved === 'object' && !Array.isArray(saved)) state = saved;
   } catch {}
+  state.displaySettings = normalizeDisplaySettings(state.displaySettings || DEFAULT_DISPLAY_SETTINGS);
+  state.autoStart = state.autoStart !== false;
 }
 
 function flushState() {
@@ -212,7 +325,7 @@ function notify() {
 }
 
 function setupIPC() {
-  ipcMain.handle('dayan:load', event => trusted(event) ? { widget: state.widget, style: state.style, appVersion: app.getVersion(), showSettingsOnStartup: state.settingsGuideVersion !== 1, pinned: state.pinned === true, fullscreen: isPresentationFullscreen(), ...securitySnapshot() } : null);
+  ipcMain.handle('dayan:load', event => trusted(event) ? { widget: state.widget, style: state.style, displaySettings: state.displaySettings, autoStart: state.autoStart !== false, appVersion: app.getVersion(), showSettingsOnStartup: state.settingsGuideVersion !== 1, pinned: state.pinned === true, fullscreen: isPresentationFullscreen(), ...securitySnapshot() } : null);
   ipcMain.handle('dayan:security-policy-status', event => trusted(event) ? windowsLockdownStatus() : { supported: false, enabled: false, missing: [], error: '请求无效' });
   ipcMain.handle('dayan:security-policy-enable', event => trusted(event) && !securityLocked ? enableWindowsLockdown() : { ok: false, error: '请先解锁时钟' });
   ipcMain.handle('dayan:security-policy-restore', event => trusted(event) && !securityLocked ? enableWindowsLockdown('restore') : { ok: false, error: '请先解锁时钟' });
@@ -228,6 +341,8 @@ function setupIPC() {
     if (serialized.length > 16384) return false;
     if (payload.widget?.privateContent?.version === 2) state.widget = payload.widget;
     if (Number.isInteger(payload.style) && payload.style >= 0 && payload.style < 14) state.style = payload.style;
+    if (payload.displaySettings && typeof payload.displaySettings === 'object') state.displaySettings = normalizeDisplaySettings(payload.displaySettings);
+    if (typeof payload.autoStart === 'boolean') state.autoStart = applyAutoStart(payload.autoStart);
     flushState();
     return true;
   });
@@ -236,8 +351,18 @@ function setupIPC() {
     if (!trusted(event) || !payload || typeof payload !== 'object' || JSON.stringify(payload).length > 16384) return;
     if (payload.widget?.privateContent?.version === 2) state.widget = payload.widget;
     if (Number.isInteger(payload.style) && payload.style >= 0 && payload.style < 14) state.style = payload.style;
+    if (payload.displaySettings && typeof payload.displaySettings === 'object') state.displaySettings = normalizeDisplaySettings(payload.displaySettings);
+    if (typeof payload.autoStart === 'boolean') state.autoStart = applyAutoStart(payload.autoStart);
     flushState();event.returnValue = true;
   });
+  ipcMain.handle('dayan:auto-start', (event, enabled) => {
+    if (!trusted(event) || securityLocked || typeof enabled !== 'boolean') return { ok: false, enabled: state.autoStart !== false, error: '请求无效' };
+    state.autoStart = applyAutoStart(enabled);
+    flushState();
+    return { ok: true, enabled: state.autoStart };
+  });
+  ipcMain.handle('dayan:update-check', event => trusted(event) && !securityLocked ? checkForUpdates({ notifyRenderer: true }) : { available: false, error: '请先解锁时钟' });
+  ipcMain.handle('dayan:update-install', event => trusted(event) && !securityLocked ? downloadAndInstallUpdate() : { ok: false, error: '请先解锁时钟' });
   ipcMain.handle('dayan:window-action', (event, action) => {
     if (!trusted(event) || securityLocked) return false;
     if (action === 'minimize') mainWindow.minimize();
@@ -386,7 +511,10 @@ else {
     mainWindow.show(); mainWindow.focus();
   });
   app.whenReady().then(() => {
-    readState(); setupIPC(); createWindow();
+    readState();
+    applyAutoStart(state.autoStart !== false);
+    setupIPC(); createWindow();
+    setTimeout(() => { checkForUpdates(); }, process.env.DAYAN_TEST_UPDATE_URL ? 250 : 2500);
     screen.on('display-metrics-changed', () => {
       if (mainWindow && !isPresentationFullscreen() && !mainWindow.isMinimized()) queueWindowedRestore();
     });
