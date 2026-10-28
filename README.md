@@ -2,7 +2,7 @@
 
 用于培训展示、直播计时和桌面屏保的离线桌面工具。打开即显示电脑本地时间，可切换秒表、倒计时和正计时；提供五种数字样式、十张本地壁纸、日期与黄历，以及密码锁定展示模式。
 
-当前版本：**1.3.1**。本仓库为私有代码与安装包备份，供获授权的维护者访问。
+当前版本：**1.3.2**。本仓库为私有代码与安装包备份，供获授权的维护者访问。
 
 [下载安装包](https://github.com/jyan5334-lab/dayan-clock/releases/latest) · [使用说明](docs/user-guide.md) · [部署与构建](docs/deployment.md) · [换电脑与远程维护](docs/maintenance.md) · [更新记录](CHANGELOG.md)
 
@@ -65,11 +65,11 @@
 | 其他平台 | Windows 12 等未来版本及 ARM64 授权未验证；macOS 仅预留构建配置 |
 
 1. 登录有本仓库访问权限的 GitHub 账号，打开 [Releases](https://github.com/jyan5334-lab/dayan-clock/releases)。
-2. 下载 `DAYANClock-Setup-1.3.1-x64.exe`，运行后选择安装目录。
+2. 下载 `DAYANClock-Setup-1.3.2-x64.exe`，运行后选择安装目录。
 3. 从桌面或开始菜单启动，首次打开可在设置中确认系统版本与策略状态。
 4. 核对设置页中的软件版本。升级时先退出旧程序，再运行新安装包。
 
-安装包当前未做 Windows 代码签名，系统可能显示“未知发布者”。每个版本附带 `SHA256SUMS-1.3.1.txt`，校验方法见 [部署说明](docs/deployment.md#安装包校验)。
+安装包当前未做 Windows 代码签名，系统可能显示“未知发布者”。每个版本附带 `SHA256SUMS-1.3.2.txt`，校验方法见 [部署说明](docs/deployment.md#安装包校验)。
 
 ## 开发与构建
 

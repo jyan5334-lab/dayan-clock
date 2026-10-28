@@ -17,8 +17,9 @@ button:focus-visible { outline:2px solid #94ffe0;outline-offset:-3px; }
 .window-tools button:hover { background:#ffffff16; }
 .window-tools button[aria-pressed="true"] { background:#17483d;color:#99ffdb; }
 .window-tools #close:hover { background:#c43e50;color:#fff; }
-#simple-timers { height:530px; }
-#simple-timers .timer { height:530px;min-height:530px;border-radius:0;border:0; }
+#simple-timers { height:calc(100% - 38px); }
+#simple-timers [data-variant] { height:100%; }
+#simple-timers .timer { height:100%;min-height:100%;border-radius:0;border:0; }
 #simple-timers header { padding-right:0; }
 #simple-timers .background-toggle { cursor:pointer; }
 #simple-timers .background-choice img { object-fit:cover; }

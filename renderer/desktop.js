@@ -43,12 +43,13 @@
       stage.style.height = '100vh';
       return;
     }
-    stage.style.width = '800px';
-    stage.style.height = '568px';
     const scale = Math.min(innerWidth / 800, innerHeight / 568);
+    if (scale <= 0) return;
+    stage.style.width = `${innerWidth / scale}px`;
+    stage.style.height = `${innerHeight / scale}px`;
     stage.style.transform = `scale(${scale})`;
-    stage.style.left = `${(innerWidth - 800 * scale) / 2}px`;
-    stage.style.top = `${(innerHeight - 568 * scale) / 2}px`;
+    stage.style.left = '0px';
+    stage.style.top = '0px';
   };
   addEventListener('resize', fit); fit();
 

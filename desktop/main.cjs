@@ -10,6 +10,7 @@ app.setAppUserModelId('com.dayan.clock');
 if (process.env.DAYAN_TEST === '1' && process.env.DAYAN_TEST_DATA) app.setPath('userData', process.env.DAYAN_TEST_DATA);
 const PASSWORD_ITERATIONS = 210000;
 let mainWindow, state = {}, resizeSession, saveTimer, securityLocked = false, quitting = false;
+let windowedBounds, presentationRequested = false, restoringBounds = false, restoreBoundsTimer;
 const stateFile = () => path.join(app.getPath('userData'), 'preferences.json');
 const lockdownScript = () => path.join(__dirname, '../scripts/enable-dayan-lockdown.ps1');
 
@@ -156,7 +157,49 @@ function securitySnapshot() {
   return { locked: securityLocked, passwordConfigured: Boolean(passwordRecord()) };
 }
 function isPresentationFullscreen() {
-  return Boolean(mainWindow && !mainWindow.isDestroyed() && (mainWindow.isFullScreen() || mainWindow.isKiosk()));
+  return Boolean(mainWindow && !mainWindow.isDestroyed() && (presentationRequested || mainWindow.isFullScreen() || mainWindow.isKiosk()));
+}
+function rememberWindowedBounds() {
+  if (!mainWindow || mainWindow.isDestroyed() || restoringBounds || securityLocked || isPresentationFullscreen() || mainWindow.isMinimized()) return;
+  const bounds = mainWindow.getBounds();
+  if (Math.abs(bounds.height - bounds.width / RATIO) > 2) return;
+  windowedBounds = bounds;
+  state.bounds = bounds;
+  scheduleSave();
+}
+function preparePresentation() {
+  rememberWindowedBounds();
+  presentationRequested = true;
+  restoringBounds = false;
+  clearTimeout(restoreBoundsTimer);
+  resizeSession = null;
+  mainWindow.setAspectRatio(0);
+}
+function restoreWindowedBounds() {
+  if (!mainWindow || mainWindow.isDestroyed() || securityLocked || isPresentationFullscreen() || mainWindow.isMinimized()) return;
+  restoringBounds = true;
+  const previous = windowedBounds || state.bounds || mainWindow.getNormalBounds();
+  const bounds = fitBounds(previous, screen.getDisplayMatching(previous).workArea);
+  mainWindow.setAspectRatio(RATIO);
+  mainWindow.setBounds(bounds, false);
+  windowedBounds = bounds;
+  state.bounds = bounds;
+  restoringBounds = false;
+  scheduleSave();
+  restorePinnedState();
+  notify();
+}
+function queueWindowedRestore() {
+  restoringBounds = true;
+  clearTimeout(restoreBoundsTimer);
+  restoreBoundsTimer = setTimeout(restoreWindowedBounds, 100);
+}
+function leavePresentation() {
+  presentationRequested = false;
+  restoringBounds = true;
+  mainWindow.setKiosk(false);
+  mainWindow.setFullScreen(false);
+  queueWindowedRestore();
 }
 function restorePinnedState() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -205,18 +248,8 @@ function setupIPC() {
       scheduleSave();
     }
     if (action === 'fullscreen') {
-      resizeSession = null;
-      if (mainWindow.isKiosk()) {
-        mainWindow.setKiosk(false);
-        setTimeout(() => {
-          if (!mainWindow || mainWindow.isDestroyed() || securityLocked) return;
-          mainWindow.setFullScreen(false);
-          restorePinnedState();
-          notify();
-        }, 150);
-      } else {
-        mainWindow.setFullScreen(!mainWindow.isFullScreen());
-      }
+      if (isPresentationFullscreen()) leavePresentation();
+      else { preparePresentation(); mainWindow.setFullScreen(true); }
     }
     notify();
     return true;
@@ -235,6 +268,8 @@ function setupIPC() {
   });
   ipcMain.handle('dayan:security-lock', (event) => {
     if (!trusted(event) || !passwordRecord() || policyOperation) return false;
+    // Preserve the ordinary window before kiosk expands its native bounds.
+    preparePresentation();
     securityLocked = true;
     resizeSession = null;
     mainWindow.setMinimizable(false);
@@ -260,25 +295,18 @@ function setupIPC() {
     securityLocked = false;
     mainWindow.setMinimizable(true);
     mainWindow.setResizable(true);
-    mainWindow.setKiosk(false);
     mainWindow.setSkipTaskbar(false);
-    setTimeout(() => {
-      if (!mainWindow || mainWindow.isDestroyed()) return;
-      mainWindow.setKiosk(false);
-      mainWindow.setFullScreen(false);
-      restorePinnedState();
-      notify();
-    }, 180);
+    leavePresentation();
     notify();
     return true;
   });
   const pointerPosition = pointer => Number.isFinite(pointer?.x) && Number.isFinite(pointer?.y) ? pointer : screen.getCursorScreenPoint();
   ipcMain.on('dayan:resize-start', (event, corner, pointer) => {
-    if (!trusted(event) || securityLocked || !corners.has(corner) || mainWindow.isFullScreen()) return;
+    if (!trusted(event) || securityLocked || restoringBounds || !corners.has(corner) || isPresentationFullscreen()) return;
     resizeSession = { corner, pointer: pointerPosition(pointer), bounds: mainWindow.getBounds() };
   });
   ipcMain.on('dayan:resize-move', (event, position) => {
-    if (!trusted(event) || securityLocked || !resizeSession || mainWindow.isFullScreen()) return;
+    if (!trusted(event) || securityLocked || restoringBounds || !resizeSession || isPresentationFullscreen()) return;
     const pointer = pointerPosition(position);
     const area = screen.getDisplayMatching(resizeSession.bounds).workArea;
     const bounds = resizeFromCorner(resizeSession.bounds, resizeSession.corner, pointer.x - resizeSession.pointer.x, pointer.y - resizeSession.pointer.y, area);
@@ -289,8 +317,12 @@ function setupIPC() {
 
 function createWindow() {
   const area = state.bounds ? screen.getDisplayMatching(state.bounds).workArea : screen.getPrimaryDisplay().workArea;
+  windowedBounds = fitBounds(state.bounds, area);
+  state.bounds = windowedBounds;
+  presentationRequested = false;
+  restoringBounds = false;
   mainWindow = new BrowserWindow({
-    ...fitBounds(state.bounds, area),
+    ...windowedBounds,
     minWidth: MIN_WIDTH, minHeight: Math.round(MIN_WIDTH / RATIO),
     title: 'DAYAN时钟', icon: path.join(__dirname, '../assets/icon.png'),
     frame: false, resizable: true, maximizable: false, fullscreenable: true,
@@ -307,7 +339,7 @@ function createWindow() {
   mainWindow.webContents.session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (_details, callback) => callback({ cancel: true }));
   // Native edge resizing must obey the same ratio as the four visible corner grips.
   mainWindow.on('will-resize', (event, proposed, details) => {
-    if (mainWindow.isFullScreen() || securityLocked) { event.preventDefault(); return; }
+    if (isPresentationFullscreen() || restoringBounds || securityLocked) { event.preventDefault(); return; }
     event.preventDefault();
     const start = mainWindow.getBounds(), edge = details.edge;
     const corner = edge.includes('top') ? (edge.includes('left') ? 'top-left' : 'top-right') : (edge.includes('left') ? 'bottom-left' : 'bottom-right');
@@ -315,20 +347,24 @@ function createWindow() {
     const dy = edge.includes('top') ? proposed.y - start.y : edge === 'left' || edge === 'right' ? 0 : proposed.height - start.height;
     mainWindow.setBounds(resizeFromCorner(start, corner, dx, dy, screen.getDisplayMatching(start).workArea));
   });
-  const rememberBounds = () => {
-    if (!mainWindow.isFullScreen()) { state.bounds = mainWindow.getBounds(); scheduleSave(); }
-  };
-  mainWindow.on('resize', rememberBounds);
-  mainWindow.on('move', rememberBounds);
+  mainWindow.on('resize', rememberWindowedBounds);
+  mainWindow.on('move', rememberWindowedBounds);
   mainWindow.on('blur', () => { resizeSession = null; });
   mainWindow.on('enter-full-screen', () => { restorePinnedState(); notify(); });
-  mainWindow.on('leave-full-screen', () => { restorePinnedState(); notify(); });
-  mainWindow.once('ready-to-show', () => { mainWindow.show(); restorePinnedState(); notify(); });
+  mainWindow.on('leave-full-screen', () => {
+    if (!presentationRequested && !securityLocked) queueWindowedRestore();
+    restorePinnedState(); notify();
+  });
+  mainWindow.on('restore', () => {
+    if (presentationRequested || securityLocked) { mainWindow.setFullScreen(true); notify(); }
+    else queueWindowedRestore();
+  });
+  mainWindow.once('ready-to-show', () => { mainWindow.show(); restoreWindowedBounds(); });
   mainWindow.on('close', event => {
     if (securityLocked && !quitting) { event.preventDefault(); return; }
     flushState();
   });
-  mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.on('closed', () => { clearTimeout(restoreBoundsTimer); mainWindow = null; });
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
     if (securityLocked && (['F11', 'Escape'].includes(input.key) || (input.alt && input.key === 'F4') || (input.control && input.shift && input.key === 'Escape'))) event.preventDefault();
@@ -352,7 +388,7 @@ else {
   app.whenReady().then(() => {
     readState(); setupIPC(); createWindow();
     screen.on('display-metrics-changed', () => {
-      if (mainWindow && !mainWindow.isFullScreen()) mainWindow.setBounds(fitBounds(mainWindow.getBounds(), screen.getDisplayMatching(mainWindow.getBounds()).workArea));
+      if (mainWindow && !isPresentationFullscreen() && !mainWindow.isMinimized()) queueWindowedRestore();
     });
     app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
   });
