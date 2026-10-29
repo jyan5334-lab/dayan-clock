@@ -1,6 +1,8 @@
 # Windows 设备级锁定
 
-DAYAN 的应用锁可以强制进入 Electron kiosk 全屏，并在应用层禁用普通键盘输入；普通桌面程序无法接收或拦截 Windows 的 `Ctrl+Alt+Delete` 安全注意序列，也无法单独阻止任务管理器进程。需要使用专用的标准 Windows 用户，并配合系统策略。
+DAYAN 的应用锁可以强制进入 Electron kiosk 全屏。Windows 版本在锁定期间使用原生低层键盘钩子拦截普通桌面的键盘输入，包括单独的 Win 键；密码框打开后仅将数字、退格和回车交给密码框。解锁时移除钩子，保护进程异常或失去应用心跳约 4 秒后自动释放。该进程不常驻监听未锁定时的键盘，不保存按键记录。
+
+普通桌面程序无法接收或拦截 Windows 的 `Ctrl+Alt+Delete` 安全注意序列，也无法单独阻止任务管理器进程。该功能不替代 Windows 登录锁屏或受信任的系统键盘筛选器，不能承诺屏蔽所有系统、硬件和安全桌面入口。更严格的设备隔离应使用专用标准 Windows 用户并配合受支持版本的系统配置。参考 [Microsoft Keyboard Filter](https://learn.microsoft.com/en-us/windows/configuration/keyboard-filter/)。
 
 ## Windows Pro
 

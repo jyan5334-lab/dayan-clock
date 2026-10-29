@@ -45,6 +45,7 @@
     </div>
   </main>
   <div id="lock-screen" hidden aria-live="polite">
+    <p id="keyboard-protection-error" role="alert" hidden>键盘保护已中断，请解锁后重新上锁。</p>
     <div id="unlock-panel" class="security-panel" hidden>
       <div class="security-panel-icon"><i data-lucide="lock-keyhole"></i></div>
       <strong>DAYAN桌面已锁定</strong>
@@ -61,7 +62,7 @@
       <button id="security-close" class="security-close" type="button" aria-label="关闭"><i data-lucide="x"></i></button>
       <div class="security-panel-icon"><i data-lucide="shield-check"></i></div>
       <strong id="security-title">设置锁屏密码</strong>
-      <p id="security-hint">锁屏后只保留密码解锁入口。</p>
+      <p id="security-hint">锁定时拦截 Win 键和普通快捷键；点击锁图标后输入数字密码。Ctrl+Alt+Delete 仍由 Windows 管理。</p>
       <button id="security-open-settings" class="policy-link" type="button"><i data-lucide="settings"></i><span>Windows 锁屏保护设置</span><i data-lucide="chevron-right"></i></button>
       <form id="security-form">
         <label id="current-password-label" hidden for="current-password">当前密码</label>

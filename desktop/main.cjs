@@ -7,6 +7,7 @@ const { RATIO, MIN_WIDTH, corners, fitBounds, resizeFromCorner } = require('./wi
 const { prepareUpdateInstall } = require('./update-install.cjs');
 const { createDesktopHost } = require('./windows-desktop.cjs');
 const { createWallpaperControls } = require('./wallpaper-controls.cjs');
+const { createKeyboardGuard } = require('./keyboard-guard.cjs');
 
 const APP_NAME = 'DAYAN桌面';
 const DEFAULT_WINDOW_LAYERS = Object.freeze({ unlocked: 'top', locked: 'top' });
@@ -21,6 +22,7 @@ let windowedBounds, presentationRequested = false, restoringBounds = false, rest
 let presentationDisplayId;
 let desktopHost, wallpaperControls, desktopHostDesired = false, desktopHostQueue = Promise.resolve(), desktopHostRequest = 0;
 let updateInfo = null, updateBusy = false, updateCheckPromise;
+let keyboardGuard, lockStarting = false, unlockInputEnabled = false;
 const stateFile = () => path.join(app.getPath('userData'), 'preferences.json');
 const lockdownScript = () => path.join(__dirname, '../scripts/enable-dayan-lockdown.ps1');
 
@@ -430,7 +432,7 @@ function verifyPassword(password) {
   return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
 }
 function securitySnapshot() {
-  return { locked: securityLocked, passwordConfigured: Boolean(passwordRecord()) };
+  return { locked: securityLocked, passwordConfigured: Boolean(passwordRecord()), keyboardGuardActive: process.platform === 'win32' ? Boolean(keyboardGuard?.isActive()) : null };
 }
 function isPresentationFullscreen() {
   return Boolean(mainWindow && !mainWindow.isDestroyed() && (presentationRequested || mainWindow.isFullScreen() || mainWindow.isKiosk()));
@@ -643,8 +645,30 @@ function setupIPC() {
     notify();
     return { ok: true, ...securitySnapshot() };
   });
-  ipcMain.handle('dayan:security-lock', (event) => {
-    if (!trusted(event) || !passwordRecord() || policyOperation) return false;
+  ipcMain.handle('dayan:security-unlock-input', (event, enabled) => {
+    if (!trusted(event) || !securityLocked || typeof enabled !== 'boolean') return false;
+    unlockInputEnabled = enabled;
+    keyboardGuard?.setInput(enabled);
+    return true;
+  });
+  ipcMain.handle('dayan:security-lock', async (event) => {
+    if (!trusted(event) || !passwordRecord() || policyOperation || lockStarting || securityLocked) return false;
+    lockStarting = true;
+    unlockInputEnabled = false;
+    try {
+      if (process.platform === 'win32') {
+        if (!keyboardGuard) throw Error('Keyboard guard unavailable.');
+        await keyboardGuard.start(mainWindow);
+      }
+    } catch (error) {
+      lockStarting = false;
+      await keyboardGuard?.stop();
+      console.error('Unable to start keyboard protection:', error.message);
+      dialog.showMessageBox(mainWindow, { type:'warning', message:'无法启用键盘保护，尚未上锁', detail:'请重新安装当前版本后重试。', buttons:['确定'] }).catch(() => {});
+      return false;
+    }
+    lockStarting = false;
+    if (!mainWindow || mainWindow.isDestroyed() || quitting) { await keyboardGuard?.stop(); return false; }
     // Preserve the ordinary window before kiosk expands its native bounds.
     preparePresentation();
     securityLocked = true;
@@ -667,6 +691,8 @@ function setupIPC() {
   ipcMain.handle('dayan:security-verify', async (event, password) => {
     if (!trusted(event) || !securityLocked || !verifyPassword(password)) return false;
     securityLocked = false;
+    unlockInputEnabled = false;
+    await keyboardGuard?.stop();
     mainWindow.setMinimizable(true);
     mainWindow.setResizable(true);
     mainWindow.setSkipTaskbar(false);
@@ -738,14 +764,15 @@ function createWindow() {
     if (securityLocked && !quitting) { event.preventDefault(); return; }
     flushState();
   });
-  mainWindow.on('closed', () => { clearTimeout(restoreBoundsTimer); wallpaperControls?.destroy(); wallpaperControls = null; mainWindow = null; });
+  mainWindow.on('closed', () => { clearTimeout(restoreBoundsTimer); keyboardGuard?.stop(); wallpaperControls?.destroy(); wallpaperControls = null; mainWindow = null; });
+  mainWindow.on('unresponsive', () => { keyboardGuard?.stop().then(notify); });
+  mainWindow.webContents.on('render-process-gone', () => { keyboardGuard?.stop().then(notify); });
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
     if (securityLocked && (['F11', 'Escape'].includes(input.key) || (input.alt && input.key === 'F4') || (input.control && input.shift && input.key === 'Escape'))) event.preventDefault();
     if (securityLocked) {
-      const editingKeys = ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Enter'];
-      const digit = /^\d$/.test(input.key) && !input.control && !input.alt && !input.meta;
-      if (!digit && !editingKeys.includes(input.key)) event.preventDefault();
+      const allowed = unlockInputEnabled && !input.control && !input.alt && !input.meta && !input.shift && (/^\d$/.test(input.key) || ['Backspace', 'Enter'].includes(input.key));
+      if (!allowed) event.preventDefault();
     }
     if ((input.control || input.meta) && ['+', '-', '=', '0'].includes(input.key)) event.preventDefault();
   });
@@ -767,6 +794,12 @@ else {
     if (process.platform === 'win32') {
       try { desktopHost = createDesktopHost(app.getPath('userData')); }
       catch (error) { console.error('Desktop host unavailable:', error.message); }
+      try {
+        keyboardGuard = createKeyboardGuard(app.getPath('userData'), {
+          onKey: key => { if (securityLocked && unlockInputEnabled && mainWindow?.isFocused()) mainWindow.webContents.send('dayan:unlock-key', key); },
+          onStopped: () => { if (securityLocked) { unlockInputEnabled = false; notify(); } }
+        });
+      } catch (error) { console.error('Keyboard guard unavailable:', error.message); }
     }
     setupIPC(); createWindow();
     if (desktopHost) wallpaperControls = createWallpaperControls({
@@ -794,5 +827,5 @@ else {
     app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
   });
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-  app.on('before-quit', () => { quitting = true; flushState(); });
+  app.on('before-quit', () => { quitting = true; keyboardGuard?.stop(); flushState(); });
 }

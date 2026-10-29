@@ -20,6 +20,11 @@ function buildUpdateHost() {
   const desktopResult = spawnSync(path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(desktopCommand, 'utf16le').toString('base64')], { windowsHide: true, encoding: 'utf8', timeout: 30000 });
   if (desktopResult.status !== 0 || !fs.existsSync(desktopOutput)) throw Error('Desktop host compilation failed: ' + desktopResult.stderr);
   fs.copyFileSync(desktopOutput, path.join(__dirname, '../assets/DAYANDesktopHost.exe'));
+  const keyboardOutput = path.join(folder, 'DAYANKeyboardGuard.exe');
+  const keyboardCommand = `Add-Type -Path ${quote(path.join(__dirname, 'keyboard-guard.cs'))} -ReferencedAssemblies System.dll,System.Core.dll,System.Web.Extensions.dll,System.Windows.Forms.dll -OutputAssembly ${quote(keyboardOutput)} -OutputType ConsoleApplication`;
+  const keyboardResult = spawnSync(path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(keyboardCommand, 'utf16le').toString('base64')], { windowsHide: true, encoding: 'utf8', timeout: 30000 });
+  if (keyboardResult.status !== 0 || !fs.existsSync(keyboardOutput)) throw Error('Keyboard guard compilation failed: ' + keyboardResult.stderr);
+  fs.copyFileSync(keyboardOutput, path.join(__dirname, '../assets/DAYANKeyboardGuard.exe'));
   return target;
 }
 module.exports = { buildUpdateHost };

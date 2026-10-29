@@ -8,6 +8,12 @@ contextBridge.exposeInMainWorld('dayan', {
   securitySetPassword: payload => ipcRenderer.invoke('dayan:security-set-password', payload),
   securityLock: () => ipcRenderer.invoke('dayan:security-lock'),
   securityVerify: password => ipcRenderer.invoke('dayan:security-verify', password),
+  securityUnlockInput: enabled => ipcRenderer.invoke('dayan:security-unlock-input', enabled),
+  onUnlockKey: callback => {
+    const listener = (_event, key) => callback(key);
+    ipcRenderer.on('dayan:unlock-key', listener);
+    return () => ipcRenderer.removeListener('dayan:unlock-key', listener);
+  },
   securityPolicyStatus: () => ipcRenderer.invoke('dayan:security-policy-status'),
   securityPolicyEnable: () => ipcRenderer.invoke('dayan:security-policy-enable'),
   securityPolicyRestore: () => ipcRenderer.invoke('dayan:security-policy-restore'),

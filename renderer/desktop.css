@@ -62,6 +62,7 @@ html[data-fullscreen="true"] .resize-corner { display:none; }
 /* Application lock: the clock remains visible while the window controls are gated by the password. */
 #lock-screen { position:fixed;inset:0;z-index:35;display:grid;place-items:center;background:transparent;pointer-events:auto; }
 #lock-screen.has-panel { background:#0007; }
+#keyboard-protection-error { position:fixed;left:24px;right:24px;top:54px;margin:0;text-align:center;color:#ff9aab;font-size:14px;pointer-events:none; }
 #lock-screen .security-panel { width:min(360px,calc(100vw - 40px)); }
 #unlock-panel { display:grid; }
 .security-panel { position:relative;gap:12px;padding:28px;background:#0c1519ee;border:1px solid #9affdf66;border-radius:10px;box-shadow:0 20px 70px #000b;color:#eaf7f3;text-align:center;backdrop-filter:blur(12px); }

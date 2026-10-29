@@ -202,12 +202,25 @@
     revealChrome();
   };
   const hideUnlockPanel = () => {
+    bridge.securityUnlockInput(false);
     unlockPanel.hidden = true;
     lockScreen.classList.remove('has-panel');
     clearSecurityError(unlockError);
     unlockPassword.value = '';
   };
-  const isUnlockEditingKey = event => event.target === unlockPassword && (/^\d$/.test(event.key) || ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Enter'].includes(event.key)) && !event.ctrlKey && !event.metaKey && !event.altKey;
+  const isUnlockEditingKey = event => event.target === unlockPassword && (/^\d$/.test(event.key) || ['Backspace', 'Enter'].includes(event.key)) && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+  const enableUnlockInput = () => { if (security.locked && !unlockPanel.hidden) bridge.securityUnlockInput(true); };
+  unlockPassword.addEventListener('focus', enableUnlockInput);
+  unlockPassword.addEventListener('pointerdown', enableUnlockInput);
+  bridge.onUnlockKey(key => {
+    if (!security.locked || unlockPanel.hidden || document.activeElement !== unlockPassword) return;
+    const start = unlockPassword.selectionStart, end = unlockPassword.selectionEnd;
+    if (/^\d$/.test(key)) {
+      if (unlockPassword.value.length - (end - start) < 16) unlockPassword.setRangeText(key, start, end, 'end');
+    } else if (key === 'Backspace') {
+      unlockPassword.setRangeText('', start === end ? Math.max(0, start - 1) : start, end, 'end');
+    } else if (key === 'Enter') unlockForm.requestSubmit();
+  });
   document.addEventListener('keydown', event => {
     if (security.locked && !isUnlockEditingKey(event)) {
       event.preventDefault();
@@ -225,6 +238,7 @@
     security = { passwordConfigured: Boolean(state.passwordConfigured), locked: Boolean(state.locked) };
     document.documentElement.classList.toggle('locked', security.locked);
     lockScreen.hidden = !security.locked;
+    document.getElementById('keyboard-protection-error').hidden = !security.locked || state.keyboardGuardActive !== false;
     if (!security.locked) hideUnlockPanel();
     lockButton.setAttribute('aria-pressed', String(security.locked));
     lockButton.setAttribute('aria-label', security.locked ? '输入密码解锁' : security.passwordConfigured ? '锁定' : '设置锁屏密码');
@@ -390,13 +404,19 @@
   });
   unlockForm.addEventListener('submit', async event => {
     event.preventDefault();
+    if (unlockForm.dataset.busy === 'true') return;
+    unlockForm.dataset.busy = 'true';
     clearSecurityError(unlockError);
-    if (await bridge.securityVerify(unlockPassword.value)) {
-      syncSecurity({ ...security, locked: false });
-      return;
+    try {
+      if (await bridge.securityVerify(unlockPassword.value)) {
+        syncSecurity({ ...security, locked: false });
+        return;
+      }
+      showSecurityError(unlockError, '密码不正确');
+      unlockPassword.select();
+    } finally {
+      unlockForm.dataset.busy = 'false';
     }
-    showSecurityError(unlockError, '密码不正确');
-    unlockPassword.select();
   });
 
   document.addEventListener('keydown', event => {
