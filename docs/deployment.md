@@ -79,3 +79,5 @@ npm run dist:mac
 当前仓库为 Public，普通安装包可以匿名访问 GitHub API 和 Release 资产。下载前探测直连、系统代理/PAC 及可信镜像，选择可用线路后维持四连接、2 MB 分段下载。完整分段及各自摘要保存在用户数据目录的 `updates/downloads`，重试和程序重开后复检续传；最终安装包必须通过发布清单的 SHA-256 验证。GitHub Token 只发送给 API 域名，不转交 CDN 或镜像。
 
 跨境链路不能仅靠客户端保证稳定速度。发布方应将安装包同步到自己控制的国内对象存储或 CDN，在可信清单的 `mirrorUrls` 中填写 HTTPS 地址，并同步正确的大小和 SHA-256。没有部署的地址不能填写，不使用未知公共下载代理。`DAYAN_GITHUB_TOKEN` 只适合受控内部环境，不编译进客户端。
+
+本地更新验收需同时设置 `DAYAN_TEST=1`、独立绝对路径 `DAYAN_TEST_DATA`、本机回环 `DAYAN_TEST_UPDATE_URL` 并传入 `--dayan-test-updates`。`tools/check-update-network.cjs` 自动设置这些条件，测试窗口保持隐藏，模拟更新不可进入安装流程；测试服务和截图不随安装包发布。普通启动忽略测试更新源。可先运行 `node tools/check-update-mode.cjs` 验证来源隔离，再运行网络验收工具。

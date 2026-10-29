@@ -361,12 +361,17 @@
     else updateCheckStatus.textContent = result?.error || `当前已是最新版本（${result?.currentVersion || '未知'}）`;
   });
   const showUpdate = info => {
+    document.getElementById('update-title').textContent = info.testOnly ? '本地更新测试 · 禁止安装' : '有新版本需要更新';
+    if (info.testOnly) {
+      document.title = 'DAYAN桌面 · 本地更新测试';
+      document.querySelector('.drag-area span').textContent = 'DAYAN桌面 · 本地更新测试';
+    }
     updateVersion.textContent = `当前版本 ${info.currentVersion || '—'} · 新版本 ${info.version}`;
     updateNotes.textContent = info.notes || '新版本已准备好，更新完成后程序会自动重新打开。';
     updateError.hidden = true;
     updateProgressWrap.hidden = true;
-    updateConfirm.disabled = false;
-    updateConfirm.querySelector('span').textContent = '确定更新';
+    updateConfirm.disabled = Boolean(info.testOnly);
+    updateConfirm.querySelector('span').textContent = info.testOnly ? '测试更新不可安装' : '确定更新';
     updateModal.hidden = false;
     lucide.createIcons();
   };

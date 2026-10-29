@@ -10,12 +10,14 @@ const { createWallpaperControls } = require('./wallpaper-controls.cjs');
 const { createKeyboardGuard } = require('./keyboard-guard.cjs');
 const { downloadUpdate } = require('./update-download.cjs');
 const { networkFetch, downloadTransports } = require('./update-network.cjs');
+const { resolveUpdateMode } = require('./update-mode.cjs');
 
 const APP_NAME = 'DAYAN桌面';
 const DEFAULT_WINDOW_LAYERS = Object.freeze({ unlocked: 'top', locked: 'top' });
 app.setName(APP_NAME);
 app.setAppUserModelId('com.dayan.clock');
-if (process.env.DAYAN_TEST === '1' && process.env.DAYAN_TEST_DATA) app.setPath('userData', process.env.DAYAN_TEST_DATA);
+const updateMode = resolveUpdateMode({ defaultUserData: app.getPath('userData') });
+if (updateMode.test) app.setPath('userData', process.env.DAYAN_TEST_DATA);
 const PASSWORD_ITERATIONS = 210000;
 const UPDATE_REPOSITORY_API = 'https://api.github.com/repos/jyan5334-lab/dayan-clock/releases/latest';
 const UPDATE_PUBLIC_MANIFEST = 'https://github.com/jyan5334-lab/dayan-clock/releases/latest/download/update.json';
@@ -146,9 +148,9 @@ async function downloadUpdateFile(update, installerPath) {
 
 async function checkForUpdates({ notifyRenderer = true } = {}) {
   if (updateCheckPromise) return updateCheckPromise;
-  if (process.env.DAYAN_TEST === '1' && !process.env.DAYAN_TEST_UPDATE_URL) return { available: false, skipped: true, currentVersion: app.getVersion() };
+  if (updateMode.test && !updateMode.fixtureUrl) return { available: false, skipped: true, currentVersion: app.getVersion() };
   updateCheckPromise = (async () => {
-    const configuredEndpoint = process.env.DAYAN_TEST_UPDATE_URL || process.env.DAYAN_UPDATE_MANIFEST_URL;
+    const configuredEndpoint = updateMode.fixtureUrl || process.env.DAYAN_UPDATE_MANIFEST_URL;
     const endpoints = configuredEndpoint ? [configuredEndpoint] : [UPDATE_REPOSITORY_API, UPDATE_PUBLIC_MANIFEST];
     let remote;
     try {
@@ -162,7 +164,7 @@ async function checkForUpdates({ notifyRenderer = true } = {}) {
       }));
     } catch (error) { throw Error(describeUpdateError(error.errors?.[0] || error)); }
     if (!remote || !isNewerVersion(remote.version, app.getVersion())) { updateInfo = null; return { available: false, currentVersion: app.getVersion(), checkedAt: new Date().toISOString() }; }
-    updateInfo = { ...remote, currentVersion: app.getVersion() };
+    updateInfo = { ...remote, currentVersion: app.getVersion(), testOnly: Boolean(updateMode.fixtureUrl) };
     if (notifyRenderer && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dayan:update-available', updateInfo);
     return { available: true, ...updateInfo };
   })().catch(error => {
@@ -173,6 +175,7 @@ async function checkForUpdates({ notifyRenderer = true } = {}) {
 }
 
 async function downloadAndInstallUpdate() {
+  if (updateMode.fixtureUrl) return { ok: false, error: '本地更新测试使用模拟版本，禁止安装。请关闭测试窗口并打开正式程序。' };
   if (!updateInfo || updateBusy) return { ok: false, error: '当前没有可安装的更新' };
   updateBusy = true;
   const update = updateInfo;
@@ -652,7 +655,8 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     ...windowedBounds,
     minWidth: MIN_WIDTH, minHeight: Math.round(MIN_WIDTH / RATIO),
-    title: APP_NAME, icon: path.join(__dirname, '../assets/icon.png'),
+    title: updateMode.fixtureUrl ? `${APP_NAME} · 本地更新测试` : APP_NAME, icon: path.join(__dirname, '../assets/icon.png'),
+    skipTaskbar: updateMode.hideWindow,
     frame: false, resizable: true, maximizable: false, fullscreenable: true,
     backgroundColor: '#080c10', show: false, autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false }
@@ -687,7 +691,7 @@ function createWindow() {
     if (presentationRequested || securityLocked) { applyPresentationWindow(); notify(); }
     else queueWindowedRestore();
   });
-  mainWindow.once('ready-to-show', () => { mainWindow.show(); restoreWindowedBounds(); });
+  mainWindow.once('ready-to-show', () => { if (!updateMode.hideWindow) mainWindow.show(); restoreWindowedBounds(); });
   mainWindow.on('close', event => {
     if (securityLocked && !quitting) { event.preventDefault(); return; }
     flushState();
@@ -743,7 +747,7 @@ else {
         if (action !== 'fullscreen') mainWindow.webContents.send('dayan:desktop-command', action);
       }
     });
-    if (!process.argv.includes('--dayan-update-recovery')) setTimeout(() => { checkForUpdates(); }, process.env.DAYAN_TEST_UPDATE_URL ? 250 : 2500);
+    if (!process.argv.includes('--dayan-update-recovery')) setTimeout(() => { checkForUpdates(); }, updateMode.fixtureUrl ? 250 : 2500);
     const updateDisplayBounds = () => {
       if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized()) return;
       if (isPresentationFullscreen()) applyPresentationWindow(true);

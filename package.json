@@ -1,6 +1,6 @@
 {
   "name": "dayan-clock",
-  "version": "1.6.8",
+  "version": "1.6.9",
   "description": "DAYAN Desktop - local desktop display, protection and timer tool",
   "author": "DAYAN",
   "license": "UNLICENSED",
@@ -42,6 +42,7 @@
       "desktop/update-install.cjs",
       "desktop/update-download.cjs",
       "desktop/update-network.cjs",
+      "desktop/update-mode.cjs",
       "desktop/windows-desktop.cjs",
       "desktop/keyboard-guard.cjs",
       "desktop/wallpaper-controls.cjs",

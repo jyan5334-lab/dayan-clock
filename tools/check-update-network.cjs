@@ -27,13 +27,18 @@ const server = http.createServer((req, res) => {
   origin = `http://127.0.0.1:${server.address().port}`;
   const env = { ...process.env, DAYAN_TEST: '1', DAYAN_TEST_DATA: path.join(testDir, 'data'), DAYAN_TEST_UPDATE_URL: `${origin}/manifest` };
   delete env.ELECTRON_RUN_AS_NODE;
-  desktop = await _electron.launch({ executablePath: packed ? path.join(root, 'release/win-unpacked/DAYANClock.exe') : require(path.join(root, 'node_modules/electron')), args: packed ? [] : [root], env });
+  desktop = await _electron.launch({ executablePath: packed ? path.join(root, 'release/win-unpacked/DAYANClock.exe') : require(path.join(root, 'node_modules/electron')), args: [...(packed ? [] : [root]), '--dayan-test-updates'], env });
   desktop.process().stderr.on('data', chunk => fs.appendFileSync(path.join(testDir, 'app.log'), chunk));
   const page = await desktop.firstWindow();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.waitForSelector('#update-modal:not([hidden])');
   assert.match(await page.locator('#update-version').innerText(), /9\.9\.9/);
+  assert.match(await page.locator('#update-title').innerText(), /测试/);
+  assert.equal(await page.locator('#update-confirm').isDisabled(), true);
+  assert.equal(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().every(window => !window.isVisible())), true, 'Fixture window must remain hidden');
+  const install = await page.evaluate(() => window.dayan.updateInstall());
+  assert.equal(install.ok, false); assert.match(install.error, /测试/);
   const result = await desktop.evaluate(async ({ app, session }, args) => {
     const path = process.mainModule.require('node:path');
     const fs = process.mainModule.require('node:fs');
@@ -78,14 +83,19 @@ const server = http.createServer((req, res) => {
     await desktop.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setBounds({ width, height: Math.round(width * 568 / 800) }), width);
     await page.waitForTimeout(150);
     const body = await page.locator('.settings-body').boundingBox();
-    await page.screenshot({ path: path.join(root, `docs/screenshots/settings-${width}.png`) });
+    await page.screenshot({ path: path.join(testDir, `settings-${width}.png`) });
     assert.ok(body.height >= 75, `Settings body is too small to inspect authorization status: ${body.height}px at ${width}px`);
   }
   assert.deepEqual(errors, []);
-  const report = { result: 'passed', packaged: packed, network: result, system: { productName: status.productName, editionId: status.editionId, fullProtectionSupported: status.fullProtectionSupported, keyboardFilterEnabled: status.keyboardFilterEnabled }, checks: ['Update manifest works through isolated Chromium session despite renderer network restrictions', 'Full download passes SHA-256 in real Electron network stack', 'Windows edition and six protection status rows returned without elevation'], errors };
+  const report = { result: 'passed', packaged: packed, network: result, system: { productName: status.productName, editionId: status.editionId, fullProtectionSupported: status.fullProtectionSupported, keyboardFilterEnabled: status.keyboardFilterEnabled }, checks: ['Fixture window remains hidden and its update is visibly marked as a test', 'Renderer button and main-process IPC both reject installing a fixture update', 'Update manifest works through isolated Chromium session despite renderer network restrictions', 'Full download passes SHA-256 in real Electron network stack', 'Windows edition and six protection status rows returned without elevation'], errors };
   fs.writeFileSync(path.join(testDir, 'validation.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify({ ...report, testDir }, null, 2));
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
-  if (desktop) { await desktop.evaluate(({ app }) => app.quit()).catch(() => {}); await desktop.close().catch(() => {}); }
+  if (desktop) {
+    const child = desktop.process();
+    await desktop.evaluate(({ app }) => app.quit()).catch(() => {});
+    await desktop.close().catch(() => { child.kill(); });
+    if (child.exitCode === null) child.kill();
+  }
   server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
 });
