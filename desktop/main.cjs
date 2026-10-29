@@ -1,10 +1,12 @@
-const { app, BrowserWindow, ipcMain, screen, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Menu, dialog } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn, spawnSync } = require('node:child_process');
 const { RATIO, MIN_WIDTH, corners, fitBounds, resizeFromCorner } = require('./window-geometry.cjs');
 const { prepareUpdateInstall } = require('./update-install.cjs');
+const { createDesktopHost } = require('./windows-desktop.cjs');
+const { createWallpaperControls } = require('./wallpaper-controls.cjs');
 
 const APP_NAME = 'DAYAN桌面';
 const DEFAULT_WINDOW_LAYERS = Object.freeze({ unlocked: 'top', locked: 'top' });
@@ -16,6 +18,7 @@ const UPDATE_REPOSITORY_API = 'https://api.github.com/repos/jyan5334-lab/dayan-c
 const DEFAULT_DISPLAY_SETTINGS = Object.freeze({ showAlmanac: true, modes: Object.freeze({ clock: false, watch: true, down: true, up: true }) });
 let mainWindow, state = {}, resizeSession, saveTimer, securityLocked = false, quitting = false;
 let windowedBounds, presentationRequested = false, restoringBounds = false, restoreBoundsTimer, desktopWindowHosted = false;
+let desktopHost, wallpaperControls, desktopHostDesired = false, desktopHostQueue = Promise.resolve(), desktopHostRequest = 0;
 let updateInfo = null, updateBusy = false, updateCheckPromise;
 const stateFile = () => path.join(app.getPath('userData'), 'preferences.json');
 const lockdownScript = () => path.join(__dirname, '../scripts/enable-dayan-lockdown.ps1');
@@ -466,10 +469,12 @@ function queueWindowedRestore() {
   clearTimeout(restoreBoundsTimer);
   restoreBoundsTimer = setTimeout(restoreWindowedBounds, 100);
 }
-function leavePresentation() {
+async function leavePresentation() {
   presentationRequested = false;
   restoringBounds = true;
-  if (desktopWindowHosted) { desktopWindowHosted = false; setDesktopWindowMode(false, screen.getDisplayMatching(mainWindow.getBounds())); }
+  wallpaperControls?.hide();
+  if (desktopHostDesired || desktopWindowHosted) await setDesktopWindowMode(false);
+  if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.setKiosk(false);
   mainWindow.setFullScreen(false);
   queueWindowedRestore();
@@ -481,89 +486,79 @@ function fullscreenLayer() {
 }
 
 function setDesktopWindowMode(hosted, display) {
-  if (process.platform !== 'win32' || !mainWindow || mainWindow.isDestroyed()) return;
-  const handle = mainWindow.getNativeWindowHandle();
-  const pointer = handle.length >= 8 ? handle.readBigUInt64LE(0).toString() : String(handle.readUInt32LE(0));
-  const bounds = display?.bounds || mainWindow.getBounds();
-  const source = [
-    "Add-Type @'",
-    'using System;',
-    'using System.Runtime.InteropServices;',
-    'public static class DayanDesktopWindow {',
-    '  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint flags);',
-    '  [DllImport("user32.dll")] public static extern IntPtr SetParent(IntPtr child, IntPtr parent);',
-    '  [DllImport("user32.dll")] public static extern IntPtr FindWindow(string cls, string title);',
-    '  [DllImport("user32.dll")] public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);',
-    '  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc callback, IntPtr extra);',
-    '  public delegate bool EnumProc(IntPtr hWnd, IntPtr extra);',
-    '  [DllImport("user32.dll")] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);',
-    '  [DllImport("user32.dll", EntryPoint="GetWindowLongPtrW")] public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);',
-    '  [DllImport("user32.dll", EntryPoint="SetWindowLongPtrW")] public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int index, IntPtr value);',
-    '  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }',
-    '  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);',
-    '}',
-    "'@",
-    '$hwnd = [IntPtr]' + pointer,
-    '$GWL_STYLE = -16; $WS_CHILD = [Int64]0x40000000; $WS_POPUP = [Int64]0x80000000; $SWP_NOACTIVATE = 0x10; $SWP_SHOWWINDOW = 0x40;',
-    `if (${hosted ? '$true' : '$false'}) {`,
-    '  $progman = [DayanDesktopWindow]::FindWindow("Progman", "Program Manager"); $result = [IntPtr]::Zero;',
-    '  if ($progman -ne [IntPtr]::Zero) { [DayanDesktopWindow]::SendMessageTimeout($progman, 0x052C, [IntPtr]::Zero, [IntPtr]::Zero, 0, 1000, [ref]$result) | Out-Null }',
-    '  $script:dayanWorker = [IntPtr]::Zero;',
-    '  $callback = [DayanDesktopWindow+EnumProc]{ param($window, $extra); $defView = [DayanDesktopWindow]::FindWindowEx($window, [IntPtr]::Zero, "SHELLDLL_DefView", $null); if ($defView -ne [IntPtr]::Zero) { $script:dayanWorker = [DayanDesktopWindow]::FindWindowEx([IntPtr]::Zero, $window, "WorkerW", $null) }; return $true };',
-    '[DayanDesktopWindow]::EnumWindows($callback, [IntPtr]::Zero) | Out-Null; $worker = $script:dayanWorker;',
-    '  if ($worker -eq [IntPtr]::Zero) { exit 2 }',
-    '  $style = [DayanDesktopWindow]::GetWindowLongPtr($hwnd, $GWL_STYLE).ToInt64(); $style = ($style -bor $WS_CHILD) -band (-bnot $WS_POPUP); [DayanDesktopWindow]::SetWindowLongPtr($hwnd, $GWL_STYLE, [IntPtr]$style) | Out-Null;',
-    '  [DayanDesktopWindow]::SetParent($hwnd, $worker) | Out-Null;',
-    `  $rect = New-Object DayanDesktopWindow+RECT; [DayanDesktopWindow]::GetWindowRect($worker, [ref]$rect) | Out-Null; $x = ${Number(bounds.x)} - $rect.Left; $y = ${Number(bounds.y)} - $rect.Top;`,
-    `  [DayanDesktopWindow]::SetWindowPos($hwnd, [IntPtr]::Zero, $x, $y, ${Number(bounds.width)}, ${Number(bounds.height)}, ($SWP_NOACTIVATE -bor $SWP_SHOWWINDOW)) | Out-Null;`,
-    '} else {',
-    '  [DayanDesktopWindow]::SetParent($hwnd, [IntPtr]::Zero) | Out-Null; $style = [DayanDesktopWindow]::GetWindowLongPtr($hwnd, $GWL_STYLE).ToInt64(); $style = ($style -bor $WS_POPUP) -band (-bnot $WS_CHILD); [DayanDesktopWindow]::SetWindowLongPtr($hwnd, $GWL_STYLE, [IntPtr]$style) | Out-Null;',
-    '  [DayanDesktopWindow]::SetWindowPos($hwnd, [IntPtr]::Zero, 0, 0, 0, 0, $SWP_NOACTIVATE) | Out-Null;',
-    '}'
-  ].join('\n');
-  const encoded = Buffer.from(source, 'utf16le').toString('base64');
-  try {
-    const child = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { detached: true, windowsHide: true, stdio: 'ignore' });
-    child.unref();
-  } catch (error) { console.error('Unable to apply desktop window mode:', error.message); }
+  if (!desktopHost || !mainWindow || mainWindow.isDestroyed()) return Promise.resolve();
+  desktopHostDesired = hosted;
+  const request = ++desktopHostRequest;
+  const window = mainWindow;
+  desktopHostQueue = desktopHostQueue.catch(() => {}).then(async () => {
+    if (request !== desktopHostRequest || window.isDestroyed()) return;
+    if (hosted) {
+      const area = (display || screen.getDisplayMatching(window.getBounds())).bounds;
+      await desktopHost.attach(window, screen.dipToScreenRect(window, area));
+    }
+    else await desktopHost.detach(window);
+    desktopWindowHosted = hosted;
+    if (request === desktopHostRequest) notify();
+  }).catch(error => {
+    desktopHostDesired = desktopWindowHosted;
+    console.error('Unable to apply desktop window mode:', error.message);
+    if (hosted && !window.isDestroyed()) {
+      desktopHostDesired = desktopWindowHosted = false;
+      presentationRequested = false;
+      window.setIgnoreMouseEvents(false);
+      queueWindowedRestore();
+      dialog.showMessageBox(window, { type:'warning', message:'暂时无法启用桌面模式', detail:'已返回普通窗口。请确认 Windows 资源管理器正在运行后重试。', buttons:['确定'] }).catch(() => {});
+    }
+  });
+  return desktopHostQueue;
 }
 
 function applyPresentationWindow() {
   if (!mainWindow || mainWindow.isDestroyed() || !isPresentationFullscreen()) return;
   const display = screen.getDisplayMatching(mainWindow.getBounds());
-  if (fullscreenLayer() === 'bottom') {
+  if (fullscreenLayer() === 'bottom' && !securityLocked && desktopHost) {
     mainWindow.setKiosk(false);
     mainWindow.setFullScreen(false);
-    mainWindow.setBounds(display.bounds, false);
-    mainWindow.setAlwaysOnTop(false);
-    if (!desktopWindowHosted) { desktopWindowHosted = true; setDesktopWindowMode(true, display); }
+    if (!desktopHostDesired && !desktopWindowHosted) {
+      mainWindow.setBounds(display.bounds, false);
+      mainWindow.setAlwaysOnTop(false);
+    }
+    if (!desktopHostDesired) return setDesktopWindowMode(true, display);
+    return desktopHostQueue;
   } else {
-    if (desktopWindowHosted) { desktopWindowHosted = false; setDesktopWindowMode(false, display); }
-    mainWindow.setBounds(display.bounds, false);
-    mainWindow.setKiosk(securityLocked);
-    mainWindow.setFullScreen(true);
-    mainWindow.setAlwaysOnTop(true, securityLocked ? 'screen-saver' : 'floating');
+    const apply = () => {
+      if (!mainWindow || mainWindow.isDestroyed() || !isPresentationFullscreen()) return;
+      if (desktopWindowHosted) return;
+      mainWindow.setIgnoreMouseEvents(false);
+      mainWindow.setBounds(display.bounds, false);
+      mainWindow.setKiosk(securityLocked);
+      mainWindow.setFullScreen(true);
+      mainWindow.setAlwaysOnTop(fullscreenLayer() !== 'bottom', securityLocked ? 'screen-saver' : 'floating');
+      if (securityLocked) mainWindow.focus();
+    };
+    if (desktopHostDesired || desktopWindowHosted) return setDesktopWindowMode(false).then(apply);
+    else apply();
   }
 }
 
 function restorePinnedState() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (isPresentationFullscreen()) {
-    if (fullscreenLayer() === 'bottom') {
-      mainWindow.setAlwaysOnTop(false);
-      if (!desktopWindowHosted) { desktopWindowHosted = true; setDesktopWindowMode(true, screen.getDisplayMatching(mainWindow.getBounds())); }
+    if (fullscreenLayer() === 'bottom' && !securityLocked && desktopHost) {
+      if (!desktopHostDesired && !desktopWindowHosted) mainWindow.setAlwaysOnTop(false);
+      if (!desktopHostDesired) setDesktopWindowMode(true);
     } else {
-      mainWindow.setAlwaysOnTop(true, securityLocked ? 'screen-saver' : 'floating');
+      mainWindow.setAlwaysOnTop(fullscreenLayer() !== 'bottom', securityLocked ? 'screen-saver' : 'floating');
     }
     return;
   }
-  if (desktopWindowHosted) { desktopWindowHosted = false; setDesktopWindowMode(false, screen.getDisplayMatching(mainWindow.getBounds())); }
+  if (desktopHostDesired || desktopWindowHosted) { setDesktopWindowMode(false).then(restorePinnedState); return; }
   if (securityLocked) mainWindow.setAlwaysOnTop(true, 'screen-saver');
   else mainWindow.setAlwaysOnTop(state.pinned === true);
 }
 function notify() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send('dayan:window-state', { pinned: state.pinned === true, fullscreen: isPresentationFullscreen(), windowLayers: normalizeWindowLayers(state.windowLayers), ...securitySnapshot() });
+  mainWindow.webContents.send('dayan:window-state', { pinned: state.pinned === true, fullscreen: isPresentationFullscreen(), desktopHosted: desktopWindowHosted, windowLayers: normalizeWindowLayers(state.windowLayers), ...securitySnapshot() });
 }
 
 function setupIPC() {
@@ -609,7 +604,7 @@ function setupIPC() {
   });
   ipcMain.handle('dayan:update-check', event => trusted(event) && !securityLocked ? checkForUpdates({ notifyRenderer: true }) : { available: false, error: '请先解锁时钟' });
   ipcMain.handle('dayan:update-install', event => trusted(event) && !securityLocked ? downloadAndInstallUpdate() : { ok: false, error: '请先解锁时钟' });
-  ipcMain.handle('dayan:window-action', (event, action) => {
+  ipcMain.handle('dayan:window-action', async (event, action) => {
     if (!trusted(event) || securityLocked) return false;
     if (action === 'minimize') mainWindow.minimize();
     if (action === 'close') mainWindow.close();
@@ -619,8 +614,8 @@ function setupIPC() {
       scheduleSave();
     }
     if (action === 'fullscreen') {
-      if (isPresentationFullscreen()) leavePresentation();
-      else { preparePresentation(); applyPresentationWindow(); }
+      if (isPresentationFullscreen()) await leavePresentation();
+      else { preparePresentation(); await applyPresentationWindow(); }
     }
     notify();
     return true;
@@ -658,13 +653,13 @@ function setupIPC() {
     setTimeout(forceKiosk, 250);
     return true;
   });
-  ipcMain.handle('dayan:security-verify', (event, password) => {
+  ipcMain.handle('dayan:security-verify', async (event, password) => {
     if (!trusted(event) || !securityLocked || !verifyPassword(password)) return false;
     securityLocked = false;
     mainWindow.setMinimizable(true);
     mainWindow.setResizable(true);
     mainWindow.setSkipTaskbar(false);
-    leavePresentation();
+    await leavePresentation();
     notify();
     return true;
   });
@@ -732,7 +727,7 @@ function createWindow() {
     if (securityLocked && !quitting) { event.preventDefault(); return; }
     flushState();
   });
-  mainWindow.on('closed', () => { clearTimeout(restoreBoundsTimer); mainWindow = null; });
+  mainWindow.on('closed', () => { clearTimeout(restoreBoundsTimer); wallpaperControls?.destroy(); wallpaperControls = null; mainWindow = null; });
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
     if (securityLocked && (['F11', 'Escape'].includes(input.key) || (input.alt && input.key === 'F4') || (input.control && input.shift && input.key === 'Escape'))) event.preventDefault();
@@ -748,7 +743,9 @@ function createWindow() {
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-  app.on('second-instance', () => {
+  app.on('second-instance', async () => {
+    if (!mainWindow) return;
+    if (!securityLocked && (desktopHostDesired || desktopWindowHosted)) await leavePresentation();
     if (!mainWindow) return;
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show(); mainWindow.focus();
@@ -756,7 +753,24 @@ else {
   app.whenReady().then(() => {
     readState();
     applyAutoStart(state.autoStart !== false);
+    if (process.platform === 'win32') {
+      try { desktopHost = createDesktopHost(app.getPath('userData')); }
+      catch (error) { console.error('Desktop host unavailable:', error.message); }
+    }
     setupIPC(); createWindow();
+    if (desktopHost) wallpaperControls = createWallpaperControls({
+      host: desktopHost,
+      enabled: () => Boolean(mainWindow && !mainWindow.isDestroyed() && desktopWindowHosted && !securityLocked && presentationRequested && !mainWindow.isMinimized()),
+      onAction: async action => {
+        if (action === 'close') { mainWindow.close(); return; }
+        if (action === 'lock' && passwordRecord()) { mainWindow.webContents.send('dayan:desktop-command', action); return; }
+        await leavePresentation();
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        if (action === 'minimize') { mainWindow.minimize(); return; }
+        mainWindow.show(); mainWindow.focus();
+        if (action !== 'fullscreen') mainWindow.webContents.send('dayan:desktop-command', action);
+      }
+    });
     if (!process.argv.includes('--dayan-update-recovery')) setTimeout(() => { checkForUpdates(); }, process.env.DAYAN_TEST_UPDATE_URL ? 250 : 2500);
     screen.on('display-metrics-changed', () => {
       if (mainWindow && !isPresentationFullscreen() && !mainWindow.isMinimized()) queueWindowedRestore();

@@ -174,6 +174,7 @@ html.locked[data-fullscreen="true"] .titlebar { box-shadow:0 8px 30px #000b; }
 html[data-fullscreen="true"] #desktop-stage { width:100vw;height:100vh;left:0!important;top:0!important;transform:none!important; }
 html[data-fullscreen="true"] .titlebar { position:fixed;top:0;left:0;right:0;z-index:40;opacity:0;transform:translateY(-100%);pointer-events:none;transition:opacity .2s,transform .2s;box-shadow:0 8px 30px #0008; }
 html[data-fullscreen="true"].chrome-visible .titlebar { opacity:1;transform:translateY(0);pointer-events:auto; }
+html[data-desktop-hosted="true"] .titlebar,html[data-desktop-hosted="true"] #simple-timers header,html[data-desktop-hosted="true"] #simple-timers .background-tools,html[data-desktop-hosted="true"] #simple-timers .actions { opacity:0!important;pointer-events:none!important; }
 html.locked[data-fullscreen="true"].chrome-visible .titlebar { transition:none; }
 html[data-fullscreen="true"] #simple-timers header { opacity:0;transform:translateY(-12px);pointer-events:none;transition:opacity .2s,transform .2s; }
 html[data-fullscreen="true"].chrome-visible #simple-timers header { opacity:1;transform:none;pointer-events:auto; }

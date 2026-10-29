@@ -256,6 +256,7 @@
     full.title = state.fullscreen ? '退出全屏' : '全屏';
     full.innerHTML = `<i data-lucide="${state.fullscreen ? 'minimize' : 'maximize'}"></i>`;
     document.documentElement.dataset.fullscreen = String(state.fullscreen);
+    document.documentElement.dataset.desktopHosted = String(Boolean(state.desktopHosted));
     if (state.windowLayers) { windowLayers = { ...windowLayers, ...state.windowLayers }; syncWindowLayers(); }
     if (state.fullscreen) { document.documentElement.classList.remove('chrome-visible'); clearTimeout(chromeTimer); }
     else document.documentElement.classList.add('chrome-visible');
@@ -264,6 +265,10 @@
     lucide.createIcons();
   };
   bridge.onWindowState(syncWindow);
+  bridge.onDesktopCommand(action => {
+    if (action === 'background') document.querySelector('[data-variant]:not([hidden]) .background-toggle')?.click();
+    else if (['style-toggle', 'settings-toggle', 'lock'].includes(action)) document.getElementById(action)?.click();
+  });
 
   styleToggle.addEventListener('click', () => { if (security.locked) return; menu.hidden = !menu.hidden; styleToggle.setAttribute('aria-expanded', String(!menu.hidden)); });
   lockButton.addEventListener('click', async () => {

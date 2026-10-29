@@ -15,4 +15,5 @@ windows-lockdown-backup.json
 *.p12
 *.cer
 assets/DAYANUpdateHost.exe
+assets/DAYANDesktopHost.exe
 *.tmp

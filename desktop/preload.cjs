@@ -37,5 +37,10 @@ contextBridge.exposeInMainWorld('dayan', {
     const listener = (_event, error) => callback(error);
     ipcRenderer.on('dayan:update-error', listener);
     return () => ipcRenderer.removeListener('dayan:update-error', listener);
+  },
+  onDesktopCommand: callback => {
+    const listener = (_event, action) => callback(action);
+    ipcRenderer.on('dayan:desktop-command', listener);
+    return () => ipcRenderer.removeListener('dayan:desktop-command', listener);
   }
 });

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'">
+  <title>DAYAN桌面工具栏</title>
+  <link rel="stylesheet" href="../renderer/wallpaper-controls.css">
+  <script defer src="../renderer/lucide.min.js"></script>
+  <script defer src="../renderer/wallpaper-controls.js"></script>
+</head>
+<body>
+  <img src="../assets/icon.png" alt="DAYAN桌面">
+  <button data-action="style-toggle" title="选择样式" aria-label="选择样式"><i data-lucide="palette"></i></button>
+  <button data-action="settings-toggle" title="设置" aria-label="设置"><i data-lucide="settings"></i></button>
+  <button data-action="background" title="选择壁纸" aria-label="选择壁纸"><i data-lucide="image"></i></button>
+  <button data-action="fullscreen" title="返回窗口" aria-label="返回窗口"><i data-lucide="minimize"></i></button>
+  <button data-action="lock" title="锁定" aria-label="锁定"><i data-lucide="lock"></i></button>
+  <button data-action="minimize" title="最小化" aria-label="最小化"><i data-lucide="minus"></i></button>
+  <button data-action="close" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button>
+</body>
+</html>

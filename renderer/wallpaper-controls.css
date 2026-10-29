@@ -1,0 +1,7 @@
+html,body { margin:0; width:100%; height:100%; overflow:hidden; }
+body { display:flex; align-items:center; justify-content:flex-end; gap:4px; box-sizing:border-box; padding:0 8px; color:#e4edf0; background:#0c1215; border:1px solid #ffffff24; font-family:Arial,sans-serif; }
+img { width:20px; height:20px; margin-right:auto; }
+button { display:grid; place-items:center; width:38px; height:36px; padding:0; border:0; border-radius:4px; background:transparent; color:#bdcdd2; cursor:pointer; }
+button:hover,button:focus-visible { background:#1c4940; color:#9bffe1; outline:none; }
+button[data-action="close"]:hover { background:#ac303d; color:white; }
+svg { width:18px; height:18px; }
