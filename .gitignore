@@ -14,4 +14,5 @@ windows-lockdown-backup.json
 *.pfx
 *.p12
 *.cer
+assets/DAYANUpdateHost.exe
 *.tmp

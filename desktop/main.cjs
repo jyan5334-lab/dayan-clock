@@ -4,6 +4,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn, spawnSync } = require('node:child_process');
 const { RATIO, MIN_WIDTH, corners, fitBounds, resizeFromCorner } = require('./window-geometry.cjs');
+const { prepareUpdateInstall } = require('./update-install.cjs');
 
 const APP_NAME = 'DAYAN桌面';
 const DEFAULT_WINDOW_LAYERS = Object.freeze({ unlocked: 'top', locked: 'top' });
@@ -269,17 +270,13 @@ async function downloadAndInstallUpdate() {
     const { actualHash } = await downloadUpdateFile(update, installerPath);
     if (update.sha256 && actualHash.toLowerCase() !== update.sha256.toLowerCase()) throw new Error('更新文件校验失败，未执行安装');
     if (process.platform !== 'win32') return { ok: false, error: '当前更新安装器仅支持 Windows' };
-    const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe');
-    const appPath = app.getPath('exe');
-    const script = `$installer=${powershellLiteral(installerPath)}; $app=${powershellLiteral(appPath)}; Start-Sleep -Milliseconds 800; $p=Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru; if ($p.ExitCode -eq 0 -and (Test-Path -LiteralPath $app)) { Start-Process -FilePath $app }; Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue`;
-    const encoded = Buffer.from(script, 'utf16le').toString('base64');
-    const child = spawn(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { detached: true, windowsHide: true, stdio: 'ignore' });
-    child.unref();
+    sendUpdateProgress({ received: update.size, total: update.size, percent: 100, status: '下载校验完成，正在准备安装…' });
+    await prepareUpdateInstall({ installerPath, appPath: app.getPath('exe'), version: update.version, userData: app.getPath('userData') });
+    sendUpdateProgress({ percent: 100, status: '正在打开安装程序，安装完成后将自动重启…' });
     quitting = true;
-    app.quit();
+    setImmediate(() => app.quit());
     return { ok: true };
   } catch (error) {
-    try { fs.rmSync(installerPath, { force: true }); } catch {}
     const message = describeUpdateError(error);
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dayan:update-error', { message });
     return { ok: false, error: message };
@@ -760,7 +757,7 @@ else {
     readState();
     applyAutoStart(state.autoStart !== false);
     setupIPC(); createWindow();
-    setTimeout(() => { checkForUpdates(); }, process.env.DAYAN_TEST_UPDATE_URL ? 250 : 2500);
+    if (!process.argv.includes('--dayan-update-recovery')) setTimeout(() => { checkForUpdates(); }, process.env.DAYAN_TEST_UPDATE_URL ? 250 : 2500);
     screen.on('display-metrics-changed', () => {
       if (mainWindow && !isPresentationFullscreen() && !mainWindow.isMinimized()) queueWindowedRestore();
     });

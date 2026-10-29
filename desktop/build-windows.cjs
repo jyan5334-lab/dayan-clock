@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { build, Platform, Arch } = require('electron-builder');
+require('./build-update-host.cjs').buildUpdateHost();
 const projectDir = path.resolve(__dirname, '..');
 const outputDir = path.join(projectDir, 'release');
 

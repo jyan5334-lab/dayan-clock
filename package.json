@@ -1,6 +1,6 @@
 {
   "name": "dayan-clock",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "description": "DAYAN Desktop - local desktop display, protection and timer tool",
   "author": "DAYAN",
   "license": "UNLICENSED",
@@ -8,8 +8,9 @@
   "main": "desktop/main.cjs",
   "scripts": {
     "check": "node tools/check-source.cjs",
-    "start": "electron .",
-    "pack:win": "electron-builder --win --x64 --dir",
+    "test:update-install": "node tools/check-update-install.cjs",
+    "start": "node desktop/build-update-host.cjs && electron .",
+    "pack:win": "node desktop/build-update-host.cjs && electron-builder --win --x64 --dir",
     "dist:win": "node desktop/build-windows.cjs",
     "dist:mac": "electron-builder --mac --arm64 --x64"
   },
@@ -35,6 +36,7 @@
       "desktop/main.cjs",
       "desktop/preload.cjs",
       "desktop/window-geometry.cjs",
+      "desktop/update-install.cjs",
       "assets/**/*",
       "README.md",
       "CHANGELOG.md",

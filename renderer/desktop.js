@@ -351,6 +351,7 @@
     updateProgressWrap.hidden = false;
     updateProgressBar.style.width = `${Math.round(progress.percent || 0)}%`;
     updateProgressText.textContent = progress.status || (progress.total ? `正在下载 ${Math.round(progress.percent)}%` : '正在下载更新…');
+    if (updateConfirm.disabled) updateConfirm.querySelector('span').textContent = progress.percent >= 100 ? '正在启动安装程序…' : '正在下载更新…';
   });
   bridge.onUpdateError(error => {
     updateError.textContent = error?.message || '更新失败，请稍后重试';
@@ -361,7 +362,9 @@
   updateConfirm.addEventListener('click', async () => {
     updateConfirm.disabled = true;
     updateConfirm.querySelector('span').textContent = '正在准备更新…';
-    const result = await bridge.updateInstall();
+    let result;
+    try { result = await bridge.updateInstall(); }
+    catch (error) { result = { ok: false, error: error.message || '安装交接失败，请重试' }; }
     if (!result?.ok) {
       updateError.textContent = result?.error || '更新失败，请稍后重试';
       updateError.hidden = false;

@@ -10,11 +10,11 @@
 
 ## 安装包校验
 
-同一 Release 下载 `SHA256SUMS-1.6.2.txt` 与安装包，在下载目录运行：
+同一 Release 下载 `SHA256SUMS-1.6.4.txt` 与安装包，在下载目录运行：
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\DAYANClock-Setup-1.6.2-x64.exe
-Get-FileHash -Algorithm SHA256 .\DAYANClock-Source-1.6.2.zip
+Get-FileHash -Algorithm SHA256 .\DAYANClock-Setup-1.6.4-x64.exe
+Get-FileHash -Algorithm SHA256 .\DAYANClock-Source-1.6.4.zip
 ```
 
 将输出与校验文件逐项比较。安装包暂未签名，可能出现未知发布者提示；校验值用于确认文件与该版本资产一致，不代替代码签名。
@@ -28,6 +28,7 @@ git clone https://github.com/jyan5334-lab/dayan-clock.git
 cd dayan-clock
 npm ci
 npm run check
+npm run test:update-install
 npm start
 ```
 
@@ -41,6 +42,8 @@ npm run dist:win
 ```
 
 第一条生成 `release/win-unpacked/`，第二条通过项目的 Windows 构建入口生成 `release/DAYANClock-Setup-<版本>-x64.exe`。`dist:win` 已包含当前项目的 NSIS 卸载程序处理，正式打包请使用这个脚本。
+
+Windows 启动与打包入口使用系统 Windows PowerShell 和 .NET 编译 `desktop/update-host.cs`，生成独立的更新辅助程序。`assets/DAYANUpdateHost.exe` 是构建产物，不提交到 Git；源码 ZIP 解压后按上述命令可重新生成。使用者安装后无需另行编译或配置。
 
 不要把 `node_modules/`、`release/`、本机数据或证书提交到 Git。无需把已安装软件目录复制回源码。原始图标和壁纸已提交，普通构建不需要重新生成。
 
