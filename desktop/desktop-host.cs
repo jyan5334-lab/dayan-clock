@@ -21,6 +21,7 @@ internal static class DesktopHost {
   [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern IntPtr GetStyle(IntPtr hwnd, int index);
   [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)] private static extern IntPtr SetStyle(IntPtr hwnd, int index, IntPtr style);
   [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
+  [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hwnd, out Rect rect);
   [DllImport("user32.dll")] private static extern int MapWindowPoints(IntPtr from, IntPtr to, ref Point point, uint count);
   [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
   [DllImport("user32.dll")] private static extern IntPtr SendMessageTimeout(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
@@ -31,7 +32,9 @@ internal static class DesktopHost {
   private static string Class(IntPtr hwnd) { var text = new StringBuilder(256); GetClassName(hwnd, text, text.Capacity); return text.ToString(); }
   private static object Describe(IntPtr hwnd) {
     Rect rect; GetWindowRect(hwnd, out rect);
-    return new { handle = hwnd.ToInt64().ToString(), parent = GetParent(hwnd).ToInt64().ToString(), cls = Class(hwnd), visible = IsWindowVisible(hwnd), x = rect.Left, y = rect.Top, width = rect.Right - rect.Left, height = rect.Bottom - rect.Top };
+    Rect client; GetClientRect(hwnd, out client);
+    var origin = new Point(); MapWindowPoints(hwnd, IntPtr.Zero, ref origin, 1);
+    return new { handle = hwnd.ToInt64().ToString(), parent = GetParent(hwnd).ToInt64().ToString(), cls = Class(hwnd), visible = IsWindowVisible(hwnd), x = rect.Left, y = rect.Top, width = rect.Right - rect.Left, height = rect.Bottom - rect.Top, client = new { x = origin.X, y = origin.Y, width = client.Right - client.Left, height = client.Bottom - client.Top } };
   }
   private static IntPtr IconsRoot(out IntPtr view) {
     IntPtr root = IntPtr.Zero, found = IntPtr.Zero;
@@ -100,6 +103,13 @@ internal static class DesktopHost {
             throw;
           }
           output = new { ok = true, parent = parent.ToInt64().ToString(), iconRoot = root.ToInt64().ToString(), iconView = view.ToInt64().ToString(), originalStyle = style.ToString(), originalExtendedStyle = extended.ToString(), layout = parent == root ? "shared-icon-root" : "wallpaper-worker", window = Describe(hwnd) };
+        } else if (args[0] == "resize") {
+          var parent = GetParent(hwnd);
+          if (parent == IntPtr.Zero || parent.ToInt64().ToString() != args[7]) throw new Exception("Desktop parent changed; reopen desktop mode.");
+          var origin = new Point { X = int.Parse(args[3]), Y = int.Parse(args[4]) };
+          MapWindowPoints(IntPtr.Zero, parent, ref origin, 1);
+          if (!SetWindowPos(hwnd, IntPtr.Zero, origin.X, origin.Y, int.Parse(args[5]), int.Parse(args[6]), 0x4 | 0x10 | 0x20 | 0x40)) throw new Exception("Desktop resizing failed.");
+          output = new { ok = true, window = Describe(hwnd) };
         } else if (args[0] == "detach") {
           SetStyle(hwnd, -16, new IntPtr(long.Parse(args[3])));
           SetStyle(hwnd, -20, new IntPtr(long.Parse(args[4])));

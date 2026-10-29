@@ -32,7 +32,7 @@ function createDesktopHost(userData) {
   return {
     run,
     async attach(window, bounds) {
-      if (snapshot) return snapshot;
+      if (snapshot) return run(['resize', ...identity(window), bounds.x, bounds.y, bounds.width, bounds.height, snapshot.parent]);
       const original = await run(['snapshot', ...identity(window)]);
       window.setIgnoreMouseEvents(true, { forward: true });
       try {

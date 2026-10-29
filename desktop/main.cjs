@@ -18,6 +18,7 @@ const UPDATE_REPOSITORY_API = 'https://api.github.com/repos/jyan5334-lab/dayan-c
 const DEFAULT_DISPLAY_SETTINGS = Object.freeze({ showAlmanac: true, modes: Object.freeze({ clock: false, watch: true, down: true, up: true }) });
 let mainWindow, state = {}, resizeSession, saveTimer, securityLocked = false, quitting = false;
 let windowedBounds, presentationRequested = false, restoringBounds = false, restoreBoundsTimer, desktopWindowHosted = false;
+let presentationDisplayId;
 let desktopHost, wallpaperControls, desktopHostDesired = false, desktopHostQueue = Promise.resolve(), desktopHostRequest = 0;
 let updateInfo = null, updateBusy = false, updateCheckPromise;
 const stateFile = () => path.join(app.getPath('userData'), 'preferences.json');
@@ -444,6 +445,7 @@ function rememberWindowedBounds() {
 }
 function preparePresentation() {
   rememberWindowedBounds();
+  if (!presentationRequested) presentationDisplayId = screen.getDisplayMatching(mainWindow.getBounds()).id;
   presentationRequested = true;
   restoringBounds = false;
   clearTimeout(restoreBoundsTimer);
@@ -485,6 +487,12 @@ function fullscreenLayer() {
   return layers[securityLocked ? 'locked' : 'unlocked'];
 }
 
+function presentationDisplay() {
+  const display = screen.getAllDisplays().find(item => item.id === presentationDisplayId) || screen.getDisplayMatching(mainWindow.getBounds());
+  presentationDisplayId = display.id;
+  return display;
+}
+
 function setDesktopWindowMode(hosted, display) {
   if (!desktopHost || !mainWindow || mainWindow.isDestroyed()) return Promise.resolve();
   desktopHostDesired = hosted;
@@ -493,19 +501,23 @@ function setDesktopWindowMode(hosted, display) {
   desktopHostQueue = desktopHostQueue.catch(() => {}).then(async () => {
     if (request !== desktopHostRequest || window.isDestroyed()) return;
     if (hosted) {
-      const area = (display || screen.getDisplayMatching(window.getBounds())).bounds;
+      const area = (display || presentationDisplay()).bounds;
       await desktopHost.attach(window, screen.dipToScreenRect(window, area));
     }
     else await desktopHost.detach(window);
     desktopWindowHosted = hosted;
     if (request === desktopHostRequest) notify();
-  }).catch(error => {
+  }).catch(async error => {
+    if (request !== desktopHostRequest || window.isDestroyed()) return;
     desktopHostDesired = desktopWindowHosted;
     console.error('Unable to apply desktop window mode:', error.message);
     if (hosted && !window.isDestroyed()) {
+      await desktopHost.detach(window).catch(detachError => console.error('Unable to detach desktop window:', detachError.message));
       desktopHostDesired = desktopWindowHosted = false;
       presentationRequested = false;
       window.setIgnoreMouseEvents(false);
+      window.setKiosk(false);
+      window.setFullScreen(false);
       queueWindowedRestore();
       dialog.showMessageBox(window, { type:'warning', message:'暂时无法启用桌面模式', detail:'已返回普通窗口。请确认 Windows 资源管理器正在运行后重试。', buttons:['确定'] }).catch(() => {});
     }
@@ -513,17 +525,16 @@ function setDesktopWindowMode(hosted, display) {
   return desktopHostQueue;
 }
 
-function applyPresentationWindow() {
+function applyPresentationWindow(refreshBounds = false) {
   if (!mainWindow || mainWindow.isDestroyed() || !isPresentationFullscreen()) return;
-  const display = screen.getDisplayMatching(mainWindow.getBounds());
+  const display = presentationDisplay();
   if (fullscreenLayer() === 'bottom' && !securityLocked && desktopHost) {
-    mainWindow.setKiosk(false);
-    mainWindow.setFullScreen(false);
     if (!desktopHostDesired && !desktopWindowHosted) {
-      mainWindow.setBounds(display.bounds, false);
+      // Enter Chromium fullscreen before parenting so its client area has no resize insets.
+      mainWindow.setFullScreen(true);
       mainWindow.setAlwaysOnTop(false);
     }
-    if (!desktopHostDesired) return setDesktopWindowMode(true, display);
+    if (!desktopHostDesired || refreshBounds) return setDesktopWindowMode(true, display);
     return desktopHostQueue;
   } else {
     const apply = () => {
@@ -772,9 +783,14 @@ else {
       }
     });
     if (!process.argv.includes('--dayan-update-recovery')) setTimeout(() => { checkForUpdates(); }, process.env.DAYAN_TEST_UPDATE_URL ? 250 : 2500);
-    screen.on('display-metrics-changed', () => {
-      if (mainWindow && !isPresentationFullscreen() && !mainWindow.isMinimized()) queueWindowedRestore();
-    });
+    const updateDisplayBounds = () => {
+      if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized()) return;
+      if (isPresentationFullscreen()) applyPresentationWindow(true);
+      else queueWindowedRestore();
+    };
+    screen.on('display-metrics-changed', updateDisplayBounds);
+    screen.on('display-added', updateDisplayBounds);
+    screen.on('display-removed', updateDisplayBounds);
     app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
   });
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

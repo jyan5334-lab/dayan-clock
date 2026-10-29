@@ -26,7 +26,25 @@ const command=`Add-Type -Path ${quote(path.join(__dirname,'desktop-shell-probe.c
 const compile=spawnSync(path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe'),['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(command,'utf16le').toString('base64')],{encoding:'utf8',windowsHide:true});
 assert.equal(compile.status,0,compile.stderr);
 let desktop;
-const checks=[],errors=[];
+const checks=[],errors=[],geometry=[];
+async function checkVisibleBounds(page,hwnd,expected,label){
+  let target;
+  for(let attempt=0;attempt<40;attempt++){
+    target=inspect().find(item=>item.handle===hwnd);
+    if(target && ['x','y','width','height'].every(key=>target.client[key]===expected[key]))break;
+    await page.waitForTimeout(75);
+  }
+  assert.ok(target,`${label}: native desktop child`);
+  for(const key of ['x','y','width','height'])assert.equal(target.client[key],expected[key],`${label}: visible client ${key}`);
+  await page.waitForFunction(()=>{
+    const rect=document.getElementById('desktop-stage').getBoundingClientRect();
+    return rect.x===0 && rect.y===0 && rect.width===innerWidth && rect.height===innerHeight;
+  });
+  const viewport=await page.evaluate(()=>({width:innerWidth,height:innerHeight,scale:devicePixelRatio}));
+  assert.ok(Math.abs(viewport.width*viewport.scale-expected.width)<=1,`${label}: rendered width`);
+  assert.ok(Math.abs(viewport.height*viewport.scale-expected.height)<=1,`${label}: rendered height`);
+  geometry.push({label,expected,client:target.client,viewport});
+}
 (async()=>{
   desktop=await _electron.launch({executablePath:packaged?path.join(root,'release/win-unpacked/DAYANClock.exe'):require(path.join(root,'node_modules/electron')),args:packaged?[]:[root],env});
   desktop.process().stderr.on('data',chunk=>fs.appendFileSync(path.join(testDir,'app.log'),chunk));
@@ -49,6 +67,9 @@ const checks=[],errors=[];
   assert.equal(native(['snapshot',hwnd,ownerPid]).transparent,true,'Wallpaper must pass input through to Explorer');
   const expected=await desktop.evaluate(({screen,BrowserWindow})=>{const win=BrowserWindow.getAllWindows()[0];return screen.dipToScreenRect(win,screen.getDisplayMatching(win.getBounds()).bounds);});
   for(const key of ['x','y','width','height'])assert.equal(target[key],expected[key],`Native display ${key}`);
+  fs.writeFileSync(path.join(testDir,'fullscreen-bounds.json'),JSON.stringify({target,expected,renderer:await page.evaluate(()=>({width:innerWidth,height:innerHeight,stage:document.getElementById('desktop-stage').getBoundingClientRect().toJSON()}))},null,2));
+  for(const key of ['x','y','width','height'])assert.equal(target.client[key],expected[key],`Native visible client ${key}`);
+  await checkVisibleBounds(page,hwnd,expected,'Initial physical display');
   assert.equal(target.visible,true);
   assert.ok(target.parent===icons.parent || windows.find(item=>item.handle===target.parent)?.cls==='WorkerW');
   assert.ok(windows.indexOf(icons)<windows.indexOf(target),'Icons must precede wallpaper in native Z order');
@@ -99,9 +120,14 @@ const checks=[],errors=[];
     checks.push('Top-edge toolbar not exercised: another app covers all display edges');
   }
   await page.waitForFunction(()=>document.documentElement.classList.contains('locked'));
-  await page.waitForTimeout(500);
+  for(let attempt=0;attempt<50;attempt++){
+    if(await desktop.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(win=>win.webContents.getURL().endsWith('/index.html')).isKiosk()))break;
+    await page.waitForTimeout(100);
+  }
   assert.equal(inspect().some(item=>item.handle===hwnd),false,'Lock must detach desktop child');
-  assert.equal(await desktop.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(win=>win.webContents.getURL().endsWith('/index.html')).isKiosk()),true);
+  const lockedState=await desktop.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().map(win=>({url:win.webContents.getURL(),kiosk:win.isKiosk(),fullscreen:win.isFullScreen(),bounds:win.getBounds()})));
+  fs.writeFileSync(path.join(testDir,'locked-state.json'),JSON.stringify(lockedState,null,2));
+  assert.equal(lockedState.find(win=>win.url.endsWith('/index.html')).kiosk,true,JSON.stringify(lockedState));
   assert.equal(await page.evaluate(()=>window.dayan.securityVerify('123456')),true);
   assert.equal(native(['snapshot',hwnd,ownerPid]).transparent,false,'Ordinary window must regain real native mouse input');
   await page.waitForTimeout(200);
@@ -116,6 +142,42 @@ const checks=[],errors=[];
     assert.equal(inspect().some(item=>item.handle===hwnd),false);
   }
   checks.push('Three repeated native attach/detach cycles passed');
+  for(const display of displays){
+    await desktop.evaluate(({BrowserWindow},bounds)=>{
+      BrowserWindow.getAllWindows().find(win=>win.webContents.getURL().endsWith('/index.html')).setBounds({x:bounds.x+30,y:bounds.y+30,width:800,height:568},false);
+    },display.bounds);
+    await page.evaluate(()=>window.dayan.windowAction('fullscreen'));
+    const physical=await desktop.evaluate(({screen,BrowserWindow},bounds)=>screen.dipToScreenRect(BrowserWindow.getAllWindows().find(win=>win.webContents.getURL().endsWith('/index.html')),bounds),display.bounds);
+    await checkVisibleBounds(page,hwnd,physical,`Physical display ${display.id}`);
+    await page.evaluate(()=>window.dayan.windowAction('fullscreen'));
+    await page.waitForTimeout(150);
+  }
+  checks.push('Visible client and page fill every connected physical display');
+  await page.evaluate(()=>window.dayan.windowAction('fullscreen'));
+  await page.waitForSelector('html[data-desktop-hosted="true"]');
+  const active=await desktop.evaluate(({screen,BrowserWindow})=>{
+    globalThis.originalDisplays=screen.getAllDisplays.bind(screen);
+    const win=BrowserWindow.getAllWindows().find(win=>win.webContents.getURL().endsWith('/index.html'));
+    return screen.getDisplayMatching(win.getBounds());
+  });
+  try{
+    for(const [width,height] of [[1920,1080],[2560,1440],[3840,2160],[7680,4320],[1080,1920]]){
+      const physical=await desktop.evaluate(({screen,BrowserWindow},{active,width,height})=>{
+        const fixture={...active,bounds:{...active.bounds,width,height}};
+        screen.getAllDisplays=()=>[fixture];
+        screen.emit('display-metrics-changed',{},fixture,['bounds']);
+        return screen.dipToScreenRect(BrowserWindow.getAllWindows().find(win=>win.webContents.getURL().endsWith('/index.html')),fixture.bounds);
+      },{active,width,height});
+      await checkVisibleBounds(page,hwnd,physical,`Simulated resolution change ${width}x${height}`);
+    }
+  }finally{
+    await desktop.evaluate(({screen})=>{screen.getAllDisplays=globalThis.originalDisplays;screen.emit('display-metrics-changed',{},screen.getPrimaryDisplay(),['bounds']);});
+  }
+  const restored=await desktop.evaluate(({screen,BrowserWindow},bounds)=>screen.dipToScreenRect(BrowserWindow.getAllWindows().find(win=>win.webContents.getURL().endsWith('/index.html')),bounds),active.bounds);
+  await checkVisibleBounds(page,hwnd,restored,'Restored physical display');
+  await page.evaluate(()=>window.dayan.windowAction('fullscreen'));
+  await page.waitForTimeout(150);
+  checks.push('1080p, 1440p, 4K, 8K and portrait resolution-change simulations preserve edge coverage');
   if(edge){
     await page.evaluate(()=>window.dayan.windowAction('fullscreen'));
     await page.waitForSelector('html[data-desktop-hosted="true"]');
@@ -128,7 +190,7 @@ const checks=[],errors=[];
     checks.push('Top-edge settings control returns to an interactive ordinary window');
   }
   assert.deepEqual(errors,[]);
-  const report={result:'passed',packaged,testDir,fullscreenMilliseconds,iconCount:menu.iconCount,contextMenu:menu.items,checks,errors};
+  const report={result:'passed',packaged,testDir,fullscreenMilliseconds,iconCount:menu.iconCount,contextMenu:menu.items,geometry,checks,errors};
   fs.writeFileSync(path.join(testDir,'validation.json'),JSON.stringify(report,null,2));
   console.log(JSON.stringify(report,null,2));
 })().catch(error=>{console.error(error.stack);process.exitCode=1;}).finally(async()=>{if(desktop)await desktop.close();});
