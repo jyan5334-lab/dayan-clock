@@ -62,7 +62,7 @@
       <button id="security-close" class="security-close" type="button" aria-label="关闭"><i data-lucide="x"></i></button>
       <div class="security-panel-icon"><i data-lucide="shield-check"></i></div>
       <strong id="security-title">设置锁屏密码</strong>
-      <p id="security-hint">锁定时拦截 Win 键和普通快捷键；点击锁图标后输入数字密码。Ctrl+Alt+Delete 仍由 Windows 管理。</p>
+      <p id="security-hint">锁定时拦截 Win 键和普通快捷键；点击锁图标后输入数字密码。Ctrl+Alt+Delete 防护状态见设置中的系统授权。</p>
       <button id="security-open-settings" class="policy-link" type="button"><i data-lucide="settings"></i><span>Windows 锁屏保护设置</span><i data-lucide="chevron-right"></i></button>
       <form id="security-form">
         <label id="current-password-label" hidden for="current-password">当前密码</label>
@@ -114,9 +114,13 @@
             <li><span>修改密码入口限制</span><span data-policy="DisableChangePassword">检测中</span></li>
             <li><span>Windows 常用快捷键限制</span><span data-policy="NoWinKeys">检测中</span></li>
             <li><span>注销入口限制</span><span data-policy="NoLogoff">检测中</span></li>
+            <li><span>Ctrl+Alt+Delete 系统安全序列</span><span data-policy="KeyboardFilter_CtrlAltDelete">检测中</span></li>
           </ul>
-          <p class="policy-notice">此操作将持续限制当前 Windows 用户的上述系统入口，时钟解锁后仍保留。可通过“恢复原有策略”撤销。Ctrl+Alt+Delete 安全界面仍由 Windows 管理。</p>
+          <p class="policy-notice">一键授权会先配置当前用户策略，并在支持 Windows Keyboard Filter 的企业版、教育版或 IoT 版本上增加 Ctrl+Alt+Delete 系统级拦截。该系统级设置会持续作用到当前设备，解锁时钟后也保留；可通过“恢复原有策略”撤销。Windows 家庭版、专业版或未提供该组件的版本只能使用前五项策略。</p>
           <p id="policy-error" class="security-error" role="alert" hidden></p>
+          <p id="policy-operation-notice" class="settings-hint" role="status" hidden></p>
+          <p id="policy-support">Windows 10/11 x64；系统安全序列需企业/教育/IoT 版与管理员授权。其他版本未验证。</p>
+          <p class="settings-hint policy-permission-note">授权将持续限制当前用户的系统入口，时钟解锁后仍保留，可在此恢复。</p>
         </section>
         <section id="settings-almanac" class="settings-section" data-settings-panel="almanac" role="tabpanel" hidden>
           <div class="settings-heading"><strong>显示设置</strong></div>
@@ -160,8 +164,6 @@
         </section>
       </div>
       <footer class="settings-footer" data-settings-footer="policy">
-        <p id="policy-support">一键授权适配范围：Windows 10 / Windows 11（x64），需管理员批准且系统策略允许。其他版本和架构暂未验证。</p>
-        <p class="policy-permission-note">授权将持续限制当前用户的系统入口，时钟解锁后仍保留，可在此恢复。</p>
         <button id="policy-enable" class="policy-enable" type="button" disabled><i data-lucide="shield-check"></i><span>一键引导授权</span></button>
         <button id="policy-restore" class="policy-secondary" type="button" disabled><i data-lucide="undo-2"></i><span>恢复原有策略</span></button>
         <button id="settings-password" class="policy-secondary" type="button"><i data-lucide="key-round"></i><span>设置锁屏密码</span></button>

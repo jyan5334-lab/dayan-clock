@@ -90,7 +90,9 @@
   const policyCopy = status => {
     if (status?.error) return { state: 'error', label: '检测失败', description: '无法确认系统状态，请点击“重新检测”。当前不会申请系统权限。' };
     if (!status?.supported) return { state: 'unsupported', label: '暂未适配', description: '当前系统不在一键授权适配范围，应用内密码锁仍可使用。' };
-    if (status.enabled) return { state: 'enabled', label: '策略已配置', description: '已读取到全部五项限制策略。部分策略需重新登录后生效，请在专用展示账户中验证。' };
+    if (status.restartRequired) return { state: 'partial', label: '等待重启', description: 'Windows Keyboard Filter 组件正在等待重启。请保存工作、重启电脑后回到此处继续授权，当前尚未生效。' };
+    if (status.enabled && status.keyboardFilterEnabled && status.administratorFiltering) return { state: 'enabled', label: '安全序列规则已配置', description: '五项用户策略及 Ctrl+Alt+Delete 筛选规则已读取。修改管理员筛选范围后需重新登录，请在目标展示账户用实体键盘验收。' };
+    if (status.enabled) return { state: 'partial', label: '基础策略已配置', description: status.fullProtectionSupported ? '五项用户策略已配置，可继续授权开启 Keyboard Filter 组件并配置安全序列规则。首次开启需要重启电脑。' : '当前系统不提供 Keyboard Filter。基础策略已配置，但管理员授权不能让此版本拦截 Ctrl+Alt+Delete；需要支持该组件的企业版、教育版或 IoT 版本。' };
     return { state: 'pending', label: '待授权', description: '点击“一键引导授权”，在 Windows 弹窗中由管理员批准。完成后自动复检，标准账户可能需要管理员凭据。' };
   };
   const syncPolicy = status => {
@@ -107,15 +109,15 @@
     if (status?.appVersion) document.getElementById('system-app-version').textContent = status.appVersion;
     document.querySelectorAll('[data-policy]').forEach(element => {
       const item = status?.policies?.find(policy => policy.name === element.dataset.policy);
-      element.textContent = item ? (item.enabled ? '已配置' : '未配置') : '未能读取';
+      element.textContent = element.dataset.policy === 'KeyboardFilter_CtrlAltDelete' && !status?.fullProtectionSupported ? '当前版本不支持' : item ? (item.enabled ? '已配置' : status.restartRequired && element.dataset.policy === 'KeyboardFilter_CtrlAltDelete' ? '等待重启' : '未配置') : '未能读取';
       element.dataset.enabled = item ? String(item.enabled) : 'unknown';
     });
-    policySupport.textContent = '一键授权适配范围：Windows 10 / Windows 11（x64），需管理员批准且系统策略允许。Windows 12、更高版本及其他架构暂未验证。';
-    policyEnable.disabled = policyBusy || !status?.supported || Boolean(status.error) || Boolean(status.enabled);
+    policySupport.textContent = 'Windows 10/11 x64；系统安全序列需企业/教育/IoT 版与管理员授权。其他版本未验证。';
+    policyEnable.disabled = policyBusy || !status?.supported || Boolean(status.error) || Boolean(status.restartRequired) || Boolean(status.enabled && (status.keyboardFilterEnabled && status.administratorFiltering || !status.fullProtectionSupported));
     policyRestore.disabled = policyBusy || Boolean(status?.error) || !status?.canRestore;
     policyRefresh.disabled = policyBusy;
     settingsPassword.disabled = policyBusy;
-    policyEnable.querySelector('span').textContent = status?.enabled ? '已配置授权策略' : '一键引导授权';
+    policyEnable.querySelector('span').textContent = status?.restartRequired ? '请重启后继续' : status?.enabled && status?.keyboardFilterEnabled && status?.administratorFiltering ? '规则已配置' : status?.enabled ? status?.fullProtectionSupported ? '补充系统级防护' : '当前系统仅支持基础策略' : '一键引导授权';
     if (status?.error) showSecurityError(policyError, status.error);
   };
   const refreshPolicy = () => {
@@ -337,6 +339,9 @@
       const result = await (action === 'restore' ? bridge.securityPolicyRestore() : bridge.securityPolicyEnable());
       policyBusy = false;
       syncPolicy(result?.status || { supported: false, error: '操作未返回系统状态，请重新检测' });
+      const notice = document.getElementById('policy-operation-notice');
+      notice.textContent = result?.notice || '';
+      notice.hidden = !result?.notice;
       if (!result?.ok) showSecurityError(policyError, result?.error || '授权未完成，请重试');
     } catch (error) {
       policyBusy = false;
@@ -379,6 +384,7 @@
     updateConfirm.querySelector('span').textContent = '重新更新';
   });
   updateConfirm.addEventListener('click', async () => {
+    updateError.hidden = true;
     updateConfirm.disabled = true;
     updateConfirm.querySelector('span').textContent = '正在准备更新…';
     let result;

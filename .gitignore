@@ -9,6 +9,7 @@ playwright-report/
 .env*
 preferences.json
 windows-lockdown-backup.json
+keyboard-filter-backup.json
 *.pem
 *.key
 *.pfx

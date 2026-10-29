@@ -102,7 +102,7 @@ html[data-fullscreen="true"] .resize-corner { display:none; }
 .settings-icon svg { width:17px;height:17px; }
 .settings-icon:hover { background:#ffffff16; }
 .settings-tabs { display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;padding:8px 12px;border-bottom:1px solid #ffffff1c;background:#0b1317; }
-.settings-tabs button { display:flex;align-items:center;justify-content:center;gap:5px;min-width:0;min-height:34px;padding:5px 4px;border:1px solid transparent;border-radius:3px;background:transparent;color:#9fb1b7;font-size:11px; }
+.settings-tabs button { display:flex;align-items:center;justify-content:center;gap:5px;min-width:0;min-height:34px;padding:5px 2px;border:1px solid transparent;border-radius:3px;background:transparent;color:#9fb1b7;font-size:11px;white-space:nowrap; }
 .settings-tabs button:hover { background:#ffffff10;color:#e6f2f0; }
 .settings-tabs button[aria-selected="true"] { background:#164335;border-color:#51c9ac;color:#a7ffe1; }
 .settings-tabs svg { width:14px;height:14px;flex:none; }

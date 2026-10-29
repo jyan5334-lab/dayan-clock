@@ -8,6 +8,8 @@ const { prepareUpdateInstall } = require('./update-install.cjs');
 const { createDesktopHost } = require('./windows-desktop.cjs');
 const { createWallpaperControls } = require('./wallpaper-controls.cjs');
 const { createKeyboardGuard } = require('./keyboard-guard.cjs');
+const { downloadUpdate } = require('./update-download.cjs');
+const { networkFetch, downloadTransports } = require('./update-network.cjs');
 
 const APP_NAME = 'DAYAN桌面';
 const DEFAULT_WINDOW_LAYERS = Object.freeze({ unlocked: 'top', locked: 'top' });
@@ -16,6 +18,7 @@ app.setAppUserModelId('com.dayan.clock');
 if (process.env.DAYAN_TEST === '1' && process.env.DAYAN_TEST_DATA) app.setPath('userData', process.env.DAYAN_TEST_DATA);
 const PASSWORD_ITERATIONS = 210000;
 const UPDATE_REPOSITORY_API = 'https://api.github.com/repos/jyan5334-lab/dayan-clock/releases/latest';
+const UPDATE_PUBLIC_MANIFEST = 'https://github.com/jyan5334-lab/dayan-clock/releases/latest/download/update.json';
 const DEFAULT_DISPLAY_SETTINGS = Object.freeze({ showAlmanac: true, modes: Object.freeze({ clock: false, watch: true, down: true, up: true }) });
 let mainWindow, state = {}, resizeSession, saveTimer, securityLocked = false, quitting = false;
 let windowedBounds, presentationRequested = false, restoringBounds = false, restoreBoundsTimer, desktopWindowHosted = false;
@@ -24,7 +27,6 @@ let desktopHost, wallpaperControls, desktopHostDesired = false, desktopHostQueue
 let updateInfo = null, updateBusy = false, updateCheckPromise;
 let keyboardGuard, lockStarting = false, unlockInputEnabled = false;
 const stateFile = () => path.join(app.getPath('userData'), 'preferences.json');
-const lockdownScript = () => path.join(__dirname, '../scripts/enable-dayan-lockdown.ps1');
 
 function normalizeDisplaySettings(value) {
   const modes = value?.modes && typeof value.modes === 'object' ? value.modes : {};
@@ -64,14 +66,49 @@ function updateHeaders() {
   return headers;
 }
 
+
+function retryDelay(attempt) {
+  return Math.min(5000, 350 * (2 ** Math.max(0, attempt - 1)) + Math.floor(Math.random() * 180));
+}
+
+function isRetryableNetworkError(error) {
+  const code = error?.cause?.code || '';
+  return error?.name === 'TimeoutError' || error?.name === 'AbortError' ||
+    ['ECONNRESET', 'ETIMEDOUT', 'ENETUNREACH', 'EAI_AGAIN', 'ENOTFOUND', 'ECONNREFUSED'].includes(code) ||
+    /fetch failed|timeout|timed out|socket|network|net::ERR_/i.test(String(error?.message || ''));
+}
+
+async function fetchWithRetry(url, options = {}, { attempts = 3, timeout = 30000 } = {}) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const signal = options.signal || AbortSignal.timeout(timeout);
+      const response = await networkFetch(url, { ...options, signal });
+      if (response.status >= 500 && attempt < attempts) {
+        try { await response.body?.cancel(); } catch {}
+        await new Promise(resolve => setTimeout(resolve, retryDelay(attempt)));
+        continue;
+      }
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (attempt >= attempts || !isRetryableNetworkError(error)) throw error;
+      await new Promise(resolve => setTimeout(resolve, retryDelay(attempt)));
+    }
+  }
+  throw lastError || new Error('网络请求失败');
+}
+
 function normalizeUpdatePayload(payload) {
   if (payload?.tag_name || payload?.name) {
     const version = String(payload.tag_name || payload.name).replace(/^v/i, '');
+    if (!/^\d+\.\d+\.\d+$/.test(version)) return null;
     const asset = Array.isArray(payload.assets) ? payload.assets.find(item => item.name === `DAYANClock-Setup-${version}-x64.exe`) : null;
     if (!asset?.browser_download_url) return null;
     return { version, title: payload.name || `DAYAN桌面 ${version}`, notes: String(payload.body || '').trim(), publishedAt: payload.published_at || payload.created_at || '', downloadUrl: asset.browser_download_url, assetApiUrl: asset.url || '', mirrorUrls: [], sha256: typeof asset.digest === 'string' ? asset.digest.replace(/^sha256:/i, '') : '', size: Number(asset.size) || 0, releaseUrl: payload.html_url || '' };
   }
   if (payload?.version && payload?.downloadUrl) {
+    if (!/^\d+\.\d+\.\d+$/.test(String(payload.version).replace(/^v/i, ''))) return null;
     const mirrors = Array.isArray(payload.mirrorUrls) ? payload.mirrorUrls.filter(value => typeof value === 'string' && value.trim()) : [];
     return { version: String(payload.version).replace(/^v/i, ''), title: payload.title || `DAYAN桌面 ${payload.version}`, notes: String(payload.notes || '').trim(), publishedAt: payload.publishedAt || '', downloadUrl: String(payload.downloadUrl), assetApiUrl: String(payload.assetApiUrl || ''), mirrorUrls: mirrors, sha256: String(payload.sha256 || '').replace(/^sha256:/i, ''), size: Number(payload.size) || 0, releaseUrl: String(payload.releaseUrl || '') };
   }
@@ -88,172 +125,42 @@ function describeUpdateError(error) {
   if (error?.name === 'TimeoutError' || error?.name === 'AbortError' || /timed out|timeout/i.test(message)) {
     return '连接更新服务器超时。请检查网络后重试；如果仍然失败，请配置可访问的镜像更新源。';
   }
-  if (message === 'fetch failed' || ['ECONNRESET', 'ETIMEDOUT', 'ENETUNREACH', 'EAI_AGAIN', 'ENOTFOUND'].includes(code)) {
-    return '无法连接更新下载服务器。中国网络下 GitHub Release 下载可能被限速或中断，请稍后重试，或配置可访问的镜像更新源。';
+  if (message === 'fetch failed' || /net::ERR_/i.test(message) || ['ECONNRESET', 'ETIMEDOUT', 'ENETUNREACH', 'EAI_AGAIN', 'ENOTFOUND'].includes(code)) {
+    return '更新线路暂时不可用，已下载的完整分段已保留。请点击重试，将继续下载；GitHub 线路受限时需要发布方提供可用镜像。';
   }
   return message || '更新下载失败，请稍后重试';
 }
 
 function updateDownloadUrls(update) {
-  return [...new Set([update.assetApiUrl, ...(update.mirrorUrls || []), update.downloadUrl].filter(value => typeof value === 'string' && value.trim()))];
+  return [...new Set([...(update.mirrorUrls || []), update.assetApiUrl, update.downloadUrl].filter(value => typeof value === 'string' && value.trim()))];
 }
 
-const UPDATE_CHUNK_SIZE = 2 * 1024 * 1024;
-const UPDATE_PARALLELISM = 4;
-const UPDATE_CHUNK_RETRIES = 2;
-const UPDATE_RANGE_PROBE_TIMEOUT = 8000;
-
-function readWithTimeout(reader, timeout = 30000) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(Object.assign(new Error('下载数据接收超时'), { name: 'TimeoutError' })), timeout);
-    reader.read().then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
-  });
-}
-
-async function hashFile(filename) {
-  const hash = crypto.createHash('sha256');
-  for await (const chunk of fs.createReadStream(filename)) hash.update(chunk);
-  return hash.digest('hex');
-}
-
-async function streamUpdateResponse(response, update, installerPath) {
-  if (!response.ok || !response.body) throw new Error(`更新下载失败（HTTP ${response.status}）`);
-  const writer = fs.createWriteStream(installerPath);
-  const reader = response.body.getReader();
-  let received = 0;
-  const total = Number(response.headers.get('content-length')) || update.size || 0;
-  try {
-    sendUpdateProgress({ received, total, percent: 0, status: '已连接，正在下载更新…' });
-    const write = chunk => new Promise((resolve, reject) => {
-      if (writer.write(chunk, error => error ? reject(error) : resolve())) return;
-      writer.once('drain', resolve);
-    });
-    while (true) {
-      const next = await readWithTimeout(reader);
-      if (next.done) break;
-      const chunk = Buffer.from(next.value);
-      received += chunk.length;
-      await write(chunk);
-      sendUpdateProgress({ received, total, percent: total ? Math.min(100, received / total * 100) : 0, status: '正在下载更新…' });
-    }
-    await new Promise((resolve, reject) => writer.end(error => error ? reject(error) : resolve()));
-    return { actualHash: await hashFile(installerPath), received, total };
-  } catch (error) {
-    try { await reader.cancel(); } catch {}
-    try { writer.destroy(); } catch {}
-    throw error;
-  }
-}
-
-async function resolveDownloadUrl(url) {
-  const response = await fetch(url, { headers: { ...updateHeaders(), Accept: 'application/octet-stream' }, redirect: 'manual', signal: AbortSignal.timeout(30000) });
-  if ([301, 302, 303, 307, 308].includes(response.status)) {
-    const location = response.headers.get('location');
-    try { await response.body?.cancel(); } catch {}
-    if (!location) throw new Error('更新下载地址没有返回跳转位置');
-    return { url: new URL(location, url).toString() };
-  }
-  return { response };
-}
-
-async function probeRangeSupport(url, total) {
-  const response = await fetch(url, { headers: { ...updateHeaders(), Accept: 'application/octet-stream', Range: 'bytes=0-0' }, redirect: 'follow', signal: AbortSignal.timeout(UPDATE_RANGE_PROBE_TIMEOUT) });
-  try {
-    return response.status === 206 && response.headers.get('content-range') === `bytes 0-0/${total}`;
-  } finally {
-    try { await response.body?.cancel(); } catch {}
-  }
-}
-
-async function downloadByRanges(url, update, installerPath) {
-  const total = Number(update.size) || 0;
-  if (!total) throw new Error('更新文件大小未知，无法启用分段下载');
-  if (!await probeRangeSupport(url, total)) throw new Error('下载服务器不支持快速分段下载');
-  const count = Math.ceil(total / UPDATE_CHUNK_SIZE);
-  const handle = await fs.promises.open(installerPath, 'w');
-  let nextIndex = 0;
-  let received = 0;
-  let failed = null;
-  try {
-    await handle.truncate(total);
-    const worker = async () => {
-      while (!failed) {
-        const index = nextIndex++;
-        if (index >= count) return;
-        const start = index * UPDATE_CHUNK_SIZE;
-        const end = Math.min(total - 1, start + UPDATE_CHUNK_SIZE - 1);
-        let complete = false;
-        for (let attempt = 1; attempt <= UPDATE_CHUNK_RETRIES && !failed; attempt++) {
-          try {
-            const response = await fetch(url, { headers: { ...updateHeaders(), Accept: 'application/octet-stream', Range: `bytes=${start}-${end}` }, redirect: 'follow', signal: AbortSignal.timeout(45000) });
-            const expected = end - start + 1;
-            if (response.status !== 206) throw new Error(`分段下载不受支持（HTTP ${response.status}）`);
-            if (response.headers.get('content-range') !== `bytes ${start}-${end}/${total}`) throw new Error('分段下载范围校验失败');
-            const bytes = Buffer.from(await response.arrayBuffer());
-            if (bytes.length !== expected) throw new Error('分段下载长度校验失败');
-            await handle.write(bytes, 0, bytes.length, start);
-            received += bytes.length;
-            sendUpdateProgress({ received, total, percent: Math.min(100, received / total * 100), status: `正在并行下载更新… ${Math.round(received / total * 100)}%` });
-            complete = true;
-            break;
-          } catch (error) {
-            if (attempt === UPDATE_CHUNK_RETRIES) failed = error;
-            else await new Promise(resolve => setTimeout(resolve, 250 * attempt));
-          }
-        }
-        if (!complete) return;
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(UPDATE_PARALLELISM, count) }, () => worker()));
-    if (failed) throw failed;
-    return { actualHash: await hashFile(installerPath), received: total, total };
-  } finally {
-    await handle.close();
-  }
-}
-
-async function downloadCandidate(url, update, installerPath) {
-  const resolved = await resolveDownloadUrl(url);
-  if (resolved.response) return streamUpdateResponse(resolved.response, update, installerPath);
-  if (update.size) {
-    try {
-      sendUpdateProgress({ received: 0, total: update.size, percent: 0, status: '已连接，正在并行下载更新…' });
-      return await downloadByRanges(resolved.url, update, installerPath);
-    } catch (error) {
-      console.warn('Parallel update download unavailable, falling back to stream:', error.message);
-      try { fs.rmSync(installerPath, { force: true }); } catch {}
-      sendUpdateProgress({ received: 0, total: update.size, percent: 0, status: '分段下载不可用，切换普通下载…' });
-    }
-  }
-  const response = await fetch(resolved.url, { headers: { ...updateHeaders(), Accept: 'application/octet-stream' }, redirect: 'follow', signal: AbortSignal.timeout(30000) });
-  return streamUpdateResponse(response, update, installerPath);
-}
 
 async function downloadUpdateFile(update, installerPath) {
-  let lastError = null;
-  const urls = updateDownloadUrls(update);
-  for (let index = 0; index < urls.length; index++) {
-    const url = urls[index];
-    sendUpdateProgress({ received: 0, total: update.size || 0, percent: 0, status: index ? '正在切换备用下载地址…' : '正在连接下载服务器…' });
-    try {
-      return await downloadCandidate(url, update, installerPath);
-    } catch (error) {
-      lastError = error;
-      console.error('Update download candidate failed:', url, error);
-      try { fs.rmSync(installerPath, { force: true }); } catch {}
-    }
-  }
-  throw lastError || new Error('没有可用的更新下载地址');
+  return downloadUpdate({ update, installerPath, urls: updateDownloadUrls(update), fetch: networkFetch, transports: downloadTransports,
+    onProgress: sendUpdateProgress, token: process.env.DAYAN_GITHUB_TOKEN,
+    onDiagnostic: record => {
+      try { fs.appendFileSync(path.join(path.dirname(installerPath), 'network.log'), JSON.stringify({ at: new Date().toISOString(), version: update.version, ...record, error: record.error?.replace(/https?:\/\/\S+/g, '[url]') }) + '\n'); } catch {}
+    } });
 }
 
 async function checkForUpdates({ notifyRenderer = true } = {}) {
   if (updateCheckPromise) return updateCheckPromise;
   if (process.env.DAYAN_TEST === '1' && !process.env.DAYAN_TEST_UPDATE_URL) return { available: false, skipped: true, currentVersion: app.getVersion() };
   updateCheckPromise = (async () => {
-    const endpoint = process.env.DAYAN_TEST_UPDATE_URL || process.env.DAYAN_UPDATE_MANIFEST_URL || UPDATE_REPOSITORY_API;
-    const response = await fetch(endpoint, { headers: updateHeaders(), redirect: 'follow', signal: AbortSignal.timeout(12000) });
-    if (!response.ok) throw new Error(`更新检查失败（HTTP ${response.status}）。私有仓库需要配置受控的更新清单或认证服务。`);
-    const remote = normalizeUpdatePayload(await response.json());
+    const configuredEndpoint = process.env.DAYAN_TEST_UPDATE_URL || process.env.DAYAN_UPDATE_MANIFEST_URL;
+    const endpoints = configuredEndpoint ? [configuredEndpoint] : [UPDATE_REPOSITORY_API, UPDATE_PUBLIC_MANIFEST];
+    let remote;
+    try {
+      remote = await Promise.any(endpoints.map(async endpoint => {
+        const headers = new URL(endpoint).hostname === 'api.github.com' ? updateHeaders() : { 'User-Agent': 'DAYANClock-Updater', Accept: 'application/json' };
+        const response = await fetchWithRetry(endpoint, { headers: { ...headers, 'Cache-Control': 'no-cache' }, redirect: 'follow' }, { attempts: 2, timeout: 6000 });
+        if (!response.ok) throw Error(`更新检查失败（HTTP ${response.status}）`);
+        const candidate = normalizeUpdatePayload(await response.json());
+        if (!candidate) throw Error('更新清单格式无效');
+        return candidate;
+      }));
+    } catch (error) { throw Error(describeUpdateError(error.errors?.[0] || error)); }
     if (!remote || !isNewerVersion(remote.version, app.getVersion())) { updateInfo = null; return { available: false, currentVersion: app.getVersion(), checkedAt: new Date().toISOString() }; }
     updateInfo = { ...remote, currentVersion: app.getVersion() };
     if (notifyRenderer && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dayan:update-available', updateInfo);
@@ -269,7 +176,7 @@ async function downloadAndInstallUpdate() {
   if (!updateInfo || updateBusy) return { ok: false, error: '当前没有可安装的更新' };
   updateBusy = true;
   const update = updateInfo;
-  const tempDir = path.join(app.getPath('temp'), `dayan-update-${process.pid}`);
+  const tempDir = path.join(app.getPath('userData'), 'updates', 'downloads');
   const installerPath = path.join(tempDir, `DAYANClock-Setup-${update.version}-x64.exe`);
   try {
     fs.mkdirSync(tempDir, { recursive: true });
@@ -318,11 +225,26 @@ $os = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
 $productName = [string]$os.ProductName
 $displayVersion = [string]$os.DisplayVersion
 $build = [string]$os.CurrentBuild
-try { $productName = [string](Get-CimInstance Win32_OperatingSystem -OperationTimeoutSec 3 -ErrorAction Stop).Caption } catch {
+$bootTime = ''
+try { $cimOs = Get-CimInstance Win32_OperatingSystem -OperationTimeoutSec 3 -ErrorAction Stop; $productName = [string]$cimOs.Caption; $bootTime = $cimOs.LastBootUpTime.ToUniversalTime().ToString('o') } catch {
   if ($productName -match '^Windows 10\b' -and [int]$build -ge 22000 -and [int]$build -lt 28000) { $productName = $productName -replace '^Windows 10', 'Windows 11' }
 }
 $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
 $versionSupported = $productName -match '^(Microsoft )?Windows (10|11)\b'
+$editionId = [string]$os.EditionID
+$editionSupported = $editionId -match '(Enterprise|Education|IoT)'
+$keyboardFilterAvailable = $false
+$keyboardFilterEnabled = $false
+$keyboardFilterError = ''
+$administratorFiltering = $false
+try {
+  $keys = @(Get-CimInstance -Namespace 'root/standardcimv2/embedded' -ClassName WEKF_PredefinedKey -OperationTimeoutSec 3 -ErrorAction Stop)
+  $secureKey = $keys | Where-Object { [string]$_.Id -eq 'Ctrl+Alt+Del' } | Select-Object -First 1
+  $keyboardFilterAvailable = $null -ne $secureKey
+  $keyboardFilterEnabled = $null -ne $secureKey -and [bool]$secureKey.Enabled
+  $setting = @(Get-CimInstance -Namespace 'root/standardcimv2/embedded' -ClassName WEKF_Settings -OperationTimeoutSec 3 -ErrorAction Stop) | Where-Object { $_.Name -eq 'DisableKeyboardFilterForAdministrators' } | Select-Object -First 1
+  $administratorFiltering = $null -ne $setting -and [string]$setting.Value -ieq 'false'
+} catch { $keyboardFilterError = $_.Exception.Message }
 $system = "Registry::HKEY_USERS\$sid\Software\Microsoft\Windows\CurrentVersion\Policies\System"
 $explorer = "Registry::HKEY_USERS\$sid\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer"
 $required = @(
@@ -339,14 +261,17 @@ foreach ($item in $required) {
   if ([int]$value -ne 1) { $missing += $item.Name }
   $policies += @{ name = $item.Name; enabled = ([int]$value -eq 1) }
 }
-[pscustomobject]@{ supported = ($versionSupported -and $architecture -eq 'x64'); versionSupported = $versionSupported; enabled = ($missing.Count -eq 0); missing = @($missing); policies = @($policies); sid = $sid; productName = $productName; displayVersion = $displayVersion; build = $build; architecture = $architecture; osLabel = ("$productName $displayVersion ($architecture)").Trim() } | ConvertTo-Json -Depth 4 -Compress
+$policies += @{ name = 'KeyboardFilter_CtrlAltDelete'; enabled = $keyboardFilterEnabled }
+[pscustomobject]@{ supported = ($versionSupported -and $architecture -eq 'x64'); fullProtectionSupported = ($versionSupported -and $architecture -eq 'x64' -and $editionSupported); versionSupported = $versionSupported; editionSupported = $editionSupported; editionId = $editionId; bootTime = $bootTime; administratorFiltering = $administratorFiltering; enabled = ($missing.Count -eq 0); keyboardFilterAvailable = $keyboardFilterAvailable; keyboardFilterEnabled = $keyboardFilterEnabled; keyboardFilterError = $keyboardFilterError; missing = @($missing); policies = @($policies); sid = $sid; productName = $productName; displayVersion = $displayVersion; build = $build; architecture = $architecture; osLabel = ("$productName $displayVersion ($architecture)").Trim() } | ConvertTo-Json -Depth 4 -Compress
 `;
   try {
     const result = await runPowerShell(script);
     if (result.code !== 0) throw new Error(result.stderr || '无法读取 Windows 策略状态');
     const parsed = JSON.parse(result.stdout);
-    if (!parsed.sid || !parsed.productName || !Array.isArray(parsed.policies) || parsed.policies.length !== 5) throw new Error('系统检测返回的数据不完整，请重新检测');
-    return { ...parsed, appVersion: app.getVersion(), checkedAt: new Date().toISOString(), canRestore: fs.existsSync(path.join(app.getPath('userData'), 'windows-lockdown-backup.json')), error: '' };
+    if (!parsed.sid || !parsed.productName || !Array.isArray(parsed.policies) || parsed.policies.length !== 6) throw new Error('系统检测返回的数据不完整，请重新检测');
+    let filterBackup;
+    try { filterBackup = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'keyboard-filter-backup.json'), 'utf8').replace(/^\uFEFF/, '')); } catch {}
+    return { ...parsed, restartRequired: Boolean(filterBackup?.PendingRestart && filterBackup.ChangedOnBoot === parsed.bootTime), appVersion: app.getVersion(), checkedAt: new Date().toISOString(), canRestore: fs.existsSync(path.join(app.getPath('userData'), 'windows-lockdown-backup.json')) || fs.existsSync(path.join(app.getPath('userData'), 'keyboard-filter-backup.json')), error: '' };
   } catch (error) {
     return { supported: false, enabled: false, missing: [], policies: [], sid: '', appVersion: app.getVersion(), checkedAt: new Date().toISOString(), error: error.message };
   }
@@ -363,35 +288,38 @@ async function enableWindowsLockdown(action = 'enable') {
 async function changeWindowsLockdown(action) {
   const status = await windowsLockdownStatus();
   if (!status.supported && action === 'enable') return { ok: false, status, error: status.error || '当前系统未列入一键授权支持范围' };
-  if (!status.sid) return { ok: false, status, error: '无法识别当前 Windows 用户，请重新启动 DAYAN桌面后重试' };
-  if (action === 'enable' && status.enabled) return { ok: true, status };
-  let temporaryScript = '';
+  if (!status.sid) return { ok: false, status, error: '无法识别当前 Windows 用户，请重新启动后重试' };
+  if (action === 'enable' && status.enabled && status.keyboardFilterEnabled && status.administratorFiltering) return { ok: true, status };
+  const jobDir = fs.mkdtempSync(path.join(app.getPath('temp'), 'dayan-authorization-'));
   try {
-    const scriptPath = action === 'restore' ? path.join(__dirname, '../scripts/restore-dayan-lockdown.ps1') : lockdownScript();
-    const source = fs.readFileSync(scriptPath, 'utf8');
-    temporaryScript = path.join(app.getPath('temp'), `dayan-lockdown-${process.pid}-${crypto.randomUUID()}.ps1`);
-    fs.writeFileSync(temporaryScript, '\uFEFF' + source.replace(/^\uFEFF/, ''), 'utf8');
-    const backupPath = path.join(app.getPath('userData'), 'windows-lockdown-backup.json');
-    const elevatedArgs = ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `"${temporaryScript}"`, '-UserSid', status.sid, '-BackupPath', `"${backupPath}"`, action === 'restore' ? '-ConfirmRestore' : '-ConfirmLockdown'].join(' ');
-    const wrapper = `
+    for (const filename of ['authorize-dayan.ps1', 'enable-dayan-lockdown.ps1', 'restore-dayan-lockdown.ps1', 'enable-dayan-keyboard-filter.ps1', 'restore-dayan-keyboard-filter.ps1']) {
+      const source = fs.readFileSync(path.join(__dirname, '../scripts', filename), 'utf8');
+      fs.writeFileSync(path.join(jobDir, filename), '\uFEFF' + source.replace(/^\uFEFF/, ''), 'utf8');
+    }
+    const args = ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `"${path.join(jobDir, 'authorize-dayan.ps1')}"`, '-Action', action, '-UserSid', status.sid, '-BackupDirectory', `"${app.getPath('userData')}"`].join(' ');
+    const result = await runPowerShell(`
 try {
-  $child = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList ${powershellLiteral(elevatedArgs)}
+  $child = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList ${powershellLiteral(args)}
   if ($null -eq $child) { exit 1223 }
   exit $child.ExitCode
-} catch {
-  Write-Error $_
-  exit 1223
-}
-`;
-    const result = await runPowerShell(wrapper, 180000);
+} catch { exit 1223 }
+`, 600000);
+    let outcome;
+    try { outcome = JSON.parse(fs.readFileSync(path.join(jobDir, 'result.json'), 'utf8').replace(/^\uFEFF/, '')); } catch {}
     const next = await windowsLockdownStatus();
+    if (result.code !== 0 || !outcome?.ok) return { ok: false, status: next, error: outcome?.error || (result.code === 1223 ? 'Windows 授权未完成或被取消，可再次点击重试' : '授权辅助程序没有完成，请重新检测') };
     const verified = action === 'restore' ? !next.error && !next.canRestore : !next.error && next.enabled;
-    if (result.code !== 0 || !verified) return { ok: false, status: next, error: result.code === 1223 ? 'Windows 授权未完成或被取消，可再次点击重试' : '系统操作未完成或复检失败，请重新检测。单位管理策略可能限制此操作。' };
-    return { ok: true, status: next };
-  } catch (error) {
-    return { ok: false, status: await windowsLockdownStatus(), error: error.message };
-  } finally {
-    if (temporaryScript) { try { fs.rmSync(temporaryScript, { force: true }); } catch {} }
+    if (!verified) return { ok: false, status: next, error: '系统操作后的复检未通过，备份已保留' };
+    const stage = outcome.filter?.stage;
+    const notice = stage === 'restart-required' ? 'Windows 组件已开启，请保存工作并重启电脑，随后在此继续配置安全序列规则。当前尚未生效。'
+      : stage === 'unsupported' ? '基础策略已配置。当前 Windows 版本不提供 Keyboard Filter，管理员授权也不能增加此组件，Ctrl+Alt+Delete 仍可打开系统安全界面。'
+      : outcome.filter?.signInRequired ? '系统安全序列规则已配置。请保存工作、注销并重新登录后，再用实体键盘验收。'
+      : action === 'restore' ? '原有策略已恢复；如修改过管理员筛选范围，请重新登录。' : '系统安全序列规则已配置，请在目标设备使用实体键盘验收。';
+    return { ok: true, status: next, notice };
+  } catch (error) { return { ok: false, status: await windowsLockdownStatus(), error: error.message }; }
+  finally {
+    for (const filename of fs.readdirSync(jobDir)) fs.rmSync(path.join(jobDir, filename), { force: true });
+    fs.rmdirSync(jobDir);
   }
 }
 

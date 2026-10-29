@@ -1,6 +1,6 @@
 {
   "name": "dayan-clock",
-  "version": "1.6.7",
+  "version": "1.6.8",
   "description": "DAYAN Desktop - local desktop display, protection and timer tool",
   "author": "DAYAN",
   "license": "UNLICENSED",
@@ -9,6 +9,7 @@
   "scripts": {
     "check": "node tools/check-source.cjs",
     "test:update-install": "node tools/check-update-install.cjs",
+    "test:update-download": "node tools/check-update-download.cjs",
     "test:desktop-shell": "node desktop/build-update-host.cjs && node tools/check-desktop-shell.cjs",
     "test:keyboard": "node desktop/build-update-host.cjs && node tools/check-keyboard-guard.cjs",
     "start": "node desktop/build-update-host.cjs && electron .",
@@ -39,6 +40,8 @@
       "desktop/preload.cjs",
       "desktop/window-geometry.cjs",
       "desktop/update-install.cjs",
+      "desktop/update-download.cjs",
+      "desktop/update-network.cjs",
       "desktop/windows-desktop.cjs",
       "desktop/keyboard-guard.cjs",
       "desktop/wallpaper-controls.cjs",

@@ -10,11 +10,11 @@
 
 ## 安装包校验
 
-同一 Release 下载 `SHA256SUMS-1.6.7.txt` 与安装包，在下载目录运行：
+同一 Release 下载 `SHA256SUMS-1.6.8.txt` 与安装包，在下载目录运行：
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\DAYANClock-Setup-1.6.7-x64.exe
-Get-FileHash -Algorithm SHA256 .\DAYANClock-Source-1.6.7.zip
+Get-FileHash -Algorithm SHA256 .\DAYANClock-Setup-1.6.8-x64.exe
+Get-FileHash -Algorithm SHA256 .\DAYANClock-Source-1.6.8.zip
 ```
 
 将输出与校验文件逐项比较。安装包暂未签名，可能出现未知发布者提示；校验值用于确认文件与该版本资产一致，不代替代码签名。
@@ -70,8 +70,12 @@ npm run dist:mac
 
 更新版本时同步 `package.json`、`package-lock.json` 与 `CHANGELOG.md`，提交后创建对应 `v<版本>` 标签。将安装包、从标签导出的源码 ZIP 和 SHA-256 文件上传至该标签的 Release，核对资产完整后发布。详细步骤见 [维护说明](maintenance.md#发布新版本)。
 
+本仓库还提供 `node tools/prepare-release.cjs`，在构建、验收并提交源码后生成源码 ZIP、公开更新清单 `update.json` 和校验文件。维护者可使用 `node tools/publish-release.cjs status|source|upload|publish|verify` 分步检查、同步源码、上传草稿、发布与复核；脚本使用本机 Git 凭据，不在客户端内置维护令牌，源码同步会核对远端基线并拒绝覆盖其他提交。
+
 ## 自动更新
 
-启动时由 Electron 主进程检查 GitHub Release 或自定义 JSON 更新清单。Release 数据需包含 `tag_name`、匹配版本的 `DAYANClock-Setup-<版本>-x64.exe` 资产和可选的 SHA-256 摘要；程序会优先使用 GitHub 资产 API 地址，并在失败时尝试备用地址。自定义清单格式为 `{"version":"1.5.1","downloadUrl":"https://.../DAYANClock-Setup-1.5.1-x64.exe","mirrorUrls":["https://国内镜像/..."],"sha256":"...","notes":"..."}`。发现更高版本后，程序只显示“确定更新”，下载、校验并重启安装。
+启动时由 Electron 主进程检查 GitHub Release API 和 Release 的 `update.json`；设置 `DAYAN_UPDATE_MANIFEST_URL` 时使用指定清单。Release 数据需包含 `tag_name`、匹配版本的 `DAYANClock-Setup-<版本>-x64.exe` 资产及 SHA-256 摘要。自定义清单格式为 `{"version":"1.6.8","downloadUrl":"https://.../DAYANClock-Setup-1.6.8-x64.exe","size":123456789,"mirrorUrls":["https://自有镜像/..."],"sha256":"64位十六进制摘要","notes":"更新说明"}`。没有有效摘要会拒绝下载。发现更高版本后，程序只显示“确定更新”，下载、校验并重启安装。
 
-当前仓库为 Public，普通安装包可以匿名访问 GitHub API 和 Release 资产，默认自动更新可直接使用。中国网络环境下，如果 GitHub Release 下载域名连接不稳定，建议把安装包同步到可访问的对象存储或 CDN，并在更新清单的 `mirrorUrls` 中填写地址；程序会在 GitHub 地址失败后自动切换。若部署到自有镜像或需要权限控制的渠道，可将 `DAYAN_UPDATE_MANIFEST_URL` 指向更新清单和下载代理；不要把 GitHub Token 编译进客户端。`DAYAN_GITHUB_TOKEN` 只适合受控的内部部署环境。
+当前仓库为 Public，普通安装包可以匿名访问 GitHub API 和 Release 资产。下载前探测直连、系统代理/PAC 及可信镜像，选择可用线路后维持四连接、2 MB 分段下载。完整分段及各自摘要保存在用户数据目录的 `updates/downloads`，重试和程序重开后复检续传；最终安装包必须通过发布清单的 SHA-256 验证。GitHub Token 只发送给 API 域名，不转交 CDN 或镜像。
+
+跨境链路不能仅靠客户端保证稳定速度。发布方应将安装包同步到自己控制的国内对象存储或 CDN，在可信清单的 `mirrorUrls` 中填写 HTTPS 地址，并同步正确的大小和 SHA-256。没有部署的地址不能填写，不使用未知公共下载代理。`DAYAN_GITHUB_TOKEN` 只适合受控内部环境，不编译进客户端。

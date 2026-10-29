@@ -1,0 +1,16 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const { spawnSync } = require('node:child_process');
+const root = path.resolve(__dirname, '..');
+const version = require('../package.json').version;
+const installer = `DAYANClock-Setup-${version}-x64.exe`;
+const source = `DAYANClock-Source-${version}.zip`;
+const folder = path.join(root, 'release');
+const sha = name => crypto.createHash('sha256').update(fs.readFileSync(path.join(folder, name))).digest('hex');
+const result = spawnSync('git', ['archive', '--format=zip', `--output=${path.join(folder, source)}`, 'HEAD'], { cwd: root, windowsHide: true, encoding: 'utf8' });
+if (result.status !== 0) throw Error(result.stderr);
+const manifest = { version, downloadUrl: `https://github.com/jyan5334-lab/dayan-clock/releases/download/v${version}/${installer}`, size: fs.statSync(path.join(folder, installer)).size, sha256: sha(installer), mirrorUrls: [], notes: fs.readFileSync(path.join(root, `docs/releases/v${version}.md`), 'utf8') };
+fs.writeFileSync(path.join(folder, 'update.json'), JSON.stringify(manifest, null, 2) + '\n');
+fs.writeFileSync(path.join(folder, `SHA256SUMS-${version}.txt`), [installer, source, 'update.json'].map(name => `${sha(name)}  ${name}`).join('\n') + '\n');
+console.log(JSON.stringify({ version, installer, source, bytes: manifest.size, sha256: manifest.sha256 }, null, 2));
