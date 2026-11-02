@@ -14,7 +14,7 @@ DAYAN 启动时检测当前 Windows 用户的锁屏策略。顶部“设置”�
 
 “基础策略已配置”只代表注册表中已存在五项限制值；“安全序列规则已配置”还要求读取到 Keyboard Filter 的 `Ctrl+Alt+Del` 规则及管理员筛选设置。首次开启组件需要重启，再回到设置继续授权；管理员筛选范围变化需要注销并重新登录。配置成功不代表已经完成实体键盘验收。策略在时钟解锁、退出后持续保留，只有执行恢复或管理员修改策略才撤销。
 
-管理员授权会先保存原有规则及 `WEKF_Settings` 的 `DisableKeyboardFilterForAdministrators` 值，重复操作保留首次备份。恢复只还原 DAYAN 改动的规则和设置，不卸载 Windows 组件，避免影响其他软件。保留 Windows 的维护恢复机制；不自动重启或注销，不替换 Explorer 或登录账户。
+管理员授权会先保存原有规则及 `WEKF_Settings` 的 `DisableKeyboardFilterForAdministrators` 值，重复操作保留首次备份。设置中的“恢复原有策略”会分别恢复注册表用户策略和 Keyboard Filter 规则；某一部分失败时，另一部分仍会尝试恢复，未完成的备份会保留以便再次执行。恢复只还原 DAYAN 改动的规则和设置，不卸载 Windows 组件，避免影响其他软件。旧版本目录 `%APPDATA%\\DAYAN时钟` 中的策略备份会在设置自检时自动迁移到当前用户数据目录。保留 Windows 的维护恢复机制；不自动重启或注销，不替换 Explorer 或登录账户。
 
 如果需要手动恢复或排查，也可以在专用 kiosk 用户中打开 PowerShell，执行：
 

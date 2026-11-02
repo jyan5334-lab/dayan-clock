@@ -11,6 +11,7 @@ const { createKeyboardGuard } = require('./keyboard-guard.cjs');
 const { downloadUpdate } = require('./update-download.cjs');
 const { networkFetch, downloadTransports } = require('./update-network.cjs');
 const { resolveUpdateMode } = require('./update-mode.cjs');
+const { migrateLegacyBackups, hasBackups } = require('./policy-backups.cjs');
 
 const APP_NAME = 'DAYAN桌面';
 const DEFAULT_WINDOW_LAYERS = Object.freeze({ unlocked: 'top', locked: 'top' });
@@ -220,6 +221,8 @@ function runPowerShell(script, timeout = 12000) {
 
 async function windowsLockdownStatus() {
   if (process.platform !== 'win32') return { supported: false, enabled: false, missing: [], error: 'Windows 专属功能' };
+  const userData = app.getPath('userData');
+  try { migrateLegacyBackups(userData); } catch (error) { console.error('Unable to migrate legacy policy backup:', error.message); }
   const script = String.raw`
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -274,7 +277,7 @@ $policies += @{ name = 'KeyboardFilter_CtrlAltDelete'; enabled = $keyboardFilter
     if (!parsed.sid || !parsed.productName || !Array.isArray(parsed.policies) || parsed.policies.length !== 6) throw new Error('系统检测返回的数据不完整，请重新检测');
     let filterBackup;
     try { filterBackup = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'keyboard-filter-backup.json'), 'utf8').replace(/^\uFEFF/, '')); } catch {}
-    return { ...parsed, restartRequired: Boolean(filterBackup?.PendingRestart && filterBackup.ChangedOnBoot === parsed.bootTime), appVersion: app.getVersion(), checkedAt: new Date().toISOString(), canRestore: fs.existsSync(path.join(app.getPath('userData'), 'windows-lockdown-backup.json')) || fs.existsSync(path.join(app.getPath('userData'), 'keyboard-filter-backup.json')), error: '' };
+    return { ...parsed, restartRequired: Boolean(filterBackup?.PendingRestart && filterBackup.ChangedOnBoot === parsed.bootTime), appVersion: app.getVersion(), checkedAt: new Date().toISOString(), canRestore: hasBackups(userData), error: '' };
   } catch (error) {
     return { supported: false, enabled: false, missing: [], policies: [], sid: '', appVersion: app.getVersion(), checkedAt: new Date().toISOString(), error: error.message };
   }

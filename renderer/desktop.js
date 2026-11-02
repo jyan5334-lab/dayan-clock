@@ -333,7 +333,7 @@
     policyRefresh.disabled = true;
     settingsPassword.disabled = true;
     const button = action === 'restore' ? policyRestore : policyEnable;
-    button.querySelector('span').textContent = '等待 Windows 授权…';
+    button.querySelector('span').textContent = action === 'restore' ? '等待 Windows 恢复…' : '等待 Windows 授权…';
     clearSecurityError(policyError);
     try {
       const result = await (action === 'restore' ? bridge.securityPolicyRestore() : bridge.securityPolicyEnable());
