@@ -28,8 +28,13 @@ if (@($backup.SecureKeys).Count) {
     $key = $keys | Where-Object { $_.Id -eq $record.Id } | Select-Object -First 1
     if ($null -eq $key -or [bool]$key.Enabled -ne [bool]$record.Enabled) { throw 'Keyboard Filter restore verification failed.' }
   }
+  $settings = @(Get-CimInstance -Namespace $namespace -ClassName WEKF_Settings -ErrorAction Stop)
+  foreach ($record in @($backup.Settings)) {
+    $setting = $settings | Where-Object { $_.Name -eq $record.Name } | Select-Object -First 1
+    if ($null -eq $setting -or [string]$setting.Value -ine [string]$record.Value) { throw 'Keyboard Filter setting restore verification failed.' }
+  }
 }
 # Leave the optional component installed: disabling it could affect another
 # application configured after DAYAN. Restore only the rules DAYAN changed.
 Remove-Item -LiteralPath $BackupPath -Force
-return @{ stage = 'restored'; message = 'DAYAN Keyboard Filter rules restored. Sign in again if administrator filtering changed.' }
+return @{ stage = 'restored'; secureKeys = @($backup.SecureKeys); settings = @($backup.Settings); message = 'DAYAN Keyboard Filter rules restored. Sign in again if administrator filtering changed.' }

@@ -27,13 +27,27 @@ function migrateLegacyBackups(userData, appData = process.env.APPDATA) {
   const sources = candidateDirectories(current, appData).slice(1);
   const migrated = [];
   fs.mkdirSync(current, { recursive: true });
+  const ledgerPath = path.join(current, 'policy-backup-migrations.json');
+  // Keep originals for recovery, but never import a consumed backup again.
+  const ledger = fs.existsSync(ledgerPath) ? JSON.parse(fs.readFileSync(ledgerPath, 'utf8')) : { version: 1, files: {} };
+  if (ledger.version !== 1 || !ledger.files || typeof ledger.files !== 'object') throw Error('Invalid policy migration record');
+  let changed = false;
   for (const filename of BACKUP_FILES) {
     const target = path.join(current, filename);
-    if (fs.existsSync(target)) continue;
+    if (ledger.files[filename]) continue;
     const source = sources.find(directory => isJsonFile(path.join(directory, filename)));
     if (!source) continue;
-    fs.copyFileSync(path.join(source, filename), target);
-    migrated.push(filename);
+    if (!fs.existsSync(target)) {
+      fs.copyFileSync(path.join(source, filename), target, fs.constants.COPYFILE_EXCL);
+      migrated.push(filename);
+    }
+    ledger.files[filename] = { source, importedAt: new Date().toISOString() };
+    changed = true;
+  }
+  if (changed) {
+    const temporary = ledgerPath + '.tmp';
+    fs.writeFileSync(temporary, JSON.stringify(ledger, null, 2));
+    fs.renameSync(temporary, ledgerPath);
   }
   return migrated;
 }
@@ -42,4 +56,21 @@ function hasBackups(userData) {
   return BACKUP_FILES.some(filename => isJsonFile(path.join(userData, filename)));
 }
 
-module.exports = { BACKUP_FILES, candidateDirectories, migrateLegacyBackups, hasBackups };
+function matchesRestoredPolicies(status, record) {
+  if (!record?.at || !Array.isArray(record.policies) || record.policies.length !== 5 || status.error) return false;
+  const names = new Set(['DisableTaskMgr', 'DisableLockWorkstation', 'DisableChangePassword', 'NoWinKeys', 'NoLogoff']);
+  for (const expected of record.policies) {
+    if (!names.delete(expected.Name)) return false;
+    const actual = status.policies?.find(item => item.name === expected.Name);
+    if (!actual || actual.exists !== expected.Exists || (expected.Exists && Number(actual.value) !== Number(expected.Value))) return false;
+  }
+  if (record.filter?.stage === 'restored') {
+    const expected = record.filter.secureKeys?.find(item => item.Id === 'Ctrl+Alt+Del');
+    if (expected && status.keyboardFilterEnabled !== expected.Enabled) return false;
+    const setting = record.filter.settings?.find(item => item.Name === 'DisableKeyboardFilterForAdministrators');
+    if (setting && status.administratorFiltering !== (String(setting.Value).toLowerCase() === 'false')) return false;
+  }
+  return true;
+}
+
+module.exports = { BACKUP_FILES, candidateDirectories, migrateLegacyBackups, hasBackups, matchesRestoredPolicies };

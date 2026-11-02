@@ -89,6 +89,7 @@
   const clearSecurityError = element => { element.textContent = ''; element.hidden = true; };
   const policyCopy = status => {
     if (status?.error) return { state: 'error', label: '检测失败', description: '无法确认系统状态，请点击“重新检测”。当前不会申请系统权限。' };
+    if (status?.restored) return { state: 'restored', label: '已恢复原有策略', description: '恢复成功，已核对五项用户策略的原值。需要锁屏限制时可重新授权；如原有策略本身含限制，会保留并标记。部分系统快捷键需要注销并重新登录后恢复。' };
     if (!status?.supported) return { state: 'unsupported', label: '暂未适配', description: '当前系统不在一键授权适配范围，应用内密码锁仍可使用。' };
     if (status.restartRequired) return { state: 'partial', label: '等待重启', description: 'Windows Keyboard Filter 组件正在等待重启。请保存工作、重启电脑后回到此处继续授权，当前尚未生效。' };
     if (status.enabled && status.keyboardFilterEnabled && status.administratorFiltering) return { state: 'enabled', label: '安全序列规则已配置', description: '五项用户策略及 Ctrl+Alt+Delete 筛选规则已读取。修改管理员筛选范围后需重新登录，请在目标展示账户用实体键盘验收。' };
@@ -109,15 +110,15 @@
     if (status?.appVersion) document.getElementById('system-app-version').textContent = status.appVersion;
     document.querySelectorAll('[data-policy]').forEach(element => {
       const item = status?.policies?.find(policy => policy.name === element.dataset.policy);
-      element.textContent = element.dataset.policy === 'KeyboardFilter_CtrlAltDelete' && !status?.fullProtectionSupported ? '当前版本不支持' : item ? (item.enabled ? '已配置' : status.restartRequired && element.dataset.policy === 'KeyboardFilter_CtrlAltDelete' ? '等待重启' : '未配置') : '未能读取';
+      element.textContent = element.dataset.policy === 'KeyboardFilter_CtrlAltDelete' && !status?.fullProtectionSupported ? '当前版本不支持' : item ? (status.restored ? (item.enabled ? '已恢复（原有配置）' : '已恢复（未限制）') : item.enabled ? '已配置' : status.restartRequired && element.dataset.policy === 'KeyboardFilter_CtrlAltDelete' ? '等待重启' : '未配置') : '未能读取';
       element.dataset.enabled = item ? String(item.enabled) : 'unknown';
     });
     policySupport.textContent = 'Windows 10/11 x64；系统安全序列需企业/教育/IoT 版与管理员授权。其他版本未验证。';
-    policyEnable.disabled = policyBusy || !status?.supported || Boolean(status.error) || Boolean(status.restartRequired) || Boolean(status.enabled && (status.keyboardFilterEnabled && status.administratorFiltering || !status.fullProtectionSupported));
+    policyEnable.disabled = policyBusy || !status?.supported || Boolean(status.error) || Boolean(status.restartRequired) || Boolean(!status.restored && status.enabled && (status.keyboardFilterEnabled && status.administratorFiltering || !status.fullProtectionSupported));
     policyRestore.disabled = policyBusy || Boolean(status?.error) || !status?.canRestore;
     policyRefresh.disabled = policyBusy;
     settingsPassword.disabled = policyBusy;
-    policyEnable.querySelector('span').textContent = status?.restartRequired ? '请重启后继续' : status?.enabled && status?.keyboardFilterEnabled && status?.administratorFiltering ? '规则已配置' : status?.enabled ? status?.fullProtectionSupported ? '补充系统级防护' : '当前系统仅支持基础策略' : '一键引导授权';
+    policyEnable.querySelector('span').textContent = status?.restored ? '重新授权' : status?.restartRequired ? '请重启后继续' : status?.enabled && status?.keyboardFilterEnabled && status?.administratorFiltering ? '规则已配置' : status?.enabled ? status?.fullProtectionSupported ? '补充系统级防护' : '当前系统仅支持基础策略' : '一键引导授权';
     if (status?.error) showSecurityError(policyError, status.error);
   };
   const refreshPolicy = () => {

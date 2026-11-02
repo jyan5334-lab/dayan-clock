@@ -151,7 +151,7 @@ html:not([data-fullscreen="true"]) #simple-timers .brand { display:none; }
 .settings-panel button:disabled { cursor:default;opacity:.55; }
 .policy-guide-head { display:flex;align-items:center;justify-content:space-between;gap:12px;color:#eef4f3;font-size:12px;font-weight:700; }
 .policy-guide-head span:last-child { color:#ffcf78;font-size:11px;font-weight:600; }
-.policy-guide-head span:last-child[data-state="enabled"] { color:#9affdf; }
+.policy-guide-head span:last-child[data-state="enabled"],.policy-guide-head span:last-child[data-state="restored"] { color:#9affdf; }
 .policy-guide-head span:last-child[data-state="unsupported"] { color:#aab9bd; }
 #policy-support { color:#c7d8e0; }
 .settings-body .policy-notice { color:#c7bc9f; }

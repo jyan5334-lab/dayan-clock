@@ -11,7 +11,7 @@ const { createKeyboardGuard } = require('./keyboard-guard.cjs');
 const { downloadUpdate } = require('./update-download.cjs');
 const { networkFetch, downloadTransports } = require('./update-network.cjs');
 const { resolveUpdateMode } = require('./update-mode.cjs');
-const { migrateLegacyBackups, hasBackups } = require('./policy-backups.cjs');
+const { migrateLegacyBackups, hasBackups, matchesRestoredPolicies } = require('./policy-backups.cjs');
 
 const APP_NAME = 'DAYAN桌面';
 const DEFAULT_WINDOW_LAYERS = Object.freeze({ unlocked: 'top', locked: 'top' });
@@ -222,7 +222,7 @@ function runPowerShell(script, timeout = 12000) {
 async function windowsLockdownStatus() {
   if (process.platform !== 'win32') return { supported: false, enabled: false, missing: [], error: 'Windows 专属功能' };
   const userData = app.getPath('userData');
-  try { migrateLegacyBackups(userData); } catch (error) { console.error('Unable to migrate legacy policy backup:', error.message); }
+  try { migrateLegacyBackups(userData, updateMode.test ? null : app.getPath('appData')); } catch (error) { console.error('Unable to migrate legacy policy backup:', error.message); }
   const script = String.raw`
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -265,7 +265,8 @@ $policies = @()
 foreach ($item in $required) {
   try { $value = (Get-ItemProperty -Path $item.Path -Name $item.Name -ErrorAction Stop).($item.Name) } catch [System.Management.Automation.ItemNotFoundException] { $value = $null } catch [System.Management.Automation.PSArgumentException] { $value = $null }
   if ([int]$value -ne 1) { $missing += $item.Name }
-  $policies += @{ name = $item.Name; enabled = ([int]$value -eq 1) }
+  $rawValue = if ($null -ne $value) { [uint32]([long]$value -band 0xffffffffL) } else { $null }
+  $policies += @{ name = $item.Name; enabled = ($rawValue -eq 1); exists = ($null -ne $value); value = $rawValue }
 }
 $policies += @{ name = 'KeyboardFilter_CtrlAltDelete'; enabled = $keyboardFilterEnabled }
 [pscustomobject]@{ supported = ($versionSupported -and $architecture -eq 'x64'); fullProtectionSupported = ($versionSupported -and $architecture -eq 'x64' -and $editionSupported); versionSupported = $versionSupported; editionSupported = $editionSupported; editionId = $editionId; bootTime = $bootTime; administratorFiltering = $administratorFiltering; enabled = ($missing.Count -eq 0); keyboardFilterAvailable = $keyboardFilterAvailable; keyboardFilterEnabled = $keyboardFilterEnabled; keyboardFilterError = $keyboardFilterError; missing = @($missing); policies = @($policies); sid = $sid; productName = $productName; displayVersion = $displayVersion; build = $build; architecture = $architecture; osLabel = ("$productName $displayVersion ($architecture)").Trim() } | ConvertTo-Json -Depth 4 -Compress
@@ -277,7 +278,14 @@ $policies += @{ name = 'KeyboardFilter_CtrlAltDelete'; enabled = $keyboardFilter
     if (!parsed.sid || !parsed.productName || !Array.isArray(parsed.policies) || parsed.policies.length !== 6) throw new Error('系统检测返回的数据不完整，请重新检测');
     let filterBackup;
     try { filterBackup = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'keyboard-filter-backup.json'), 'utf8').replace(/^\uFEFF/, '')); } catch {}
-    return { ...parsed, restartRequired: Boolean(filterBackup?.PendingRestart && filterBackup.ChangedOnBoot === parsed.bootTime), appVersion: app.getVersion(), checkedAt: new Date().toISOString(), canRestore: hasBackups(userData), error: '' };
+    const status = { ...parsed, restartRequired: Boolean(filterBackup?.PendingRestart && filterBackup.ChangedOnBoot === parsed.bootTime), appVersion: app.getVersion(), checkedAt: new Date().toISOString(), canRestore: hasBackups(userData), error: '' };
+    let restoration = state.policyRestoration;
+    try {
+      const receipt = JSON.parse(fs.readFileSync(path.join(userData, 'policy-restoration.json'), 'utf8').replace(/^\uFEFF/, ''));
+      if (receipt.version === 1) restoration = { at: receipt.at, policies: receipt.policy?.policies, filter: receipt.filter };
+    } catch {}
+    status.restored = !status.canRestore && matchesRestoredPolicies(status, restoration);
+    return status;
   } catch (error) {
     return { supported: false, enabled: false, missing: [], policies: [], sid: '', appVersion: app.getVersion(), checkedAt: new Date().toISOString(), error: error.message };
   }
@@ -295,7 +303,7 @@ async function changeWindowsLockdown(action) {
   const status = await windowsLockdownStatus();
   if (!status.supported && action === 'enable') return { ok: false, status, error: status.error || '当前系统未列入一键授权支持范围' };
   if (!status.sid) return { ok: false, status, error: '无法识别当前 Windows 用户，请重新启动后重试' };
-  if (action === 'enable' && status.enabled && status.keyboardFilterEnabled && status.administratorFiltering) return { ok: true, status };
+  if (action === 'enable' && !status.restored && status.enabled && status.keyboardFilterEnabled && status.administratorFiltering) return { ok: true, status };
   const jobDir = fs.mkdtempSync(path.join(app.getPath('temp'), 'dayan-authorization-'));
   try {
     for (const filename of ['authorize-dayan.ps1', 'enable-dayan-lockdown.ps1', 'restore-dayan-lockdown.ps1', 'enable-dayan-keyboard-filter.ps1', 'restore-dayan-keyboard-filter.ps1']) {
@@ -314,13 +322,17 @@ try {
     try { outcome = JSON.parse(fs.readFileSync(path.join(jobDir, 'result.json'), 'utf8').replace(/^\uFEFF/, '')); } catch {}
     const next = await windowsLockdownStatus();
     if (result.code !== 0 || !outcome?.ok) return { ok: false, status: next, error: outcome?.error || (result.code === 1223 ? 'Windows 授权未完成或被取消，可再次点击重试' : '授权辅助程序没有完成，请重新检测') };
-    const verified = action === 'restore' ? !next.error && !next.canRestore : !next.error && next.enabled;
-    if (!verified) return { ok: false, status: next, error: '系统操作后的复检未通过，备份已保留' };
+    const restoration = { at: new Date().toISOString(), policies: outcome.policy?.policies, filter: outcome.filter };
+    const verified = action === 'restore' ? !next.error && !next.canRestore && matchesRestoredPolicies(next, restoration) : !next.error && next.enabled;
+    if (!verified) return { ok: false, status: next, error: '系统操作后的复检未通过，请重新检测；未完成项的备份会保留' };
+    state.policyRestoration = action === 'restore' ? restoration : null;
+    next.restored = action === 'restore';
+    flushState();
     const stage = outcome.filter?.stage;
     const notice = stage === 'restart-required' ? 'Windows 组件已开启，请保存工作并重启电脑，随后在此继续配置安全序列规则。当前尚未生效。'
       : stage === 'unsupported' ? '基础策略已配置。当前 Windows 版本不提供 Keyboard Filter，管理员授权也不能增加此组件，Ctrl+Alt+Delete 仍可打开系统安全界面。'
       : outcome.filter?.signInRequired ? '系统安全序列规则已配置。请保存工作、注销并重新登录后，再用实体键盘验收。'
-      : action === 'restore' ? '原有策略已恢复；如修改过管理员筛选范围，请重新登录。' : '系统安全序列规则已配置，请在目标设备使用实体键盘验收。';
+      : action === 'restore' ? '恢复成功：已逐项核对授权前的原始策略。如需再次启用，请点击“重新授权”。部分 Windows 快捷键可能需要注销并重新登录后恢复。' : '系统安全序列规则已配置，请在目标设备使用实体键盘验收。';
     return { ok: true, status: next, notice };
   } catch (error) { return { ok: false, status: await windowsLockdownStatus(), error: error.message }; }
   finally {
