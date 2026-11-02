@@ -3,18 +3,20 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
-const { downloadUpdate, CHUNK_SIZE, CONNECTIONS } = require('../desktop/update-download.cjs');
+const { downloadUpdate, mergeUpdateSources, CHUNK_SIZE, CONNECTIONS, FALLBACK_CONNECTIONS, SOURCE_POOL_LIMIT } = require('../desktop/update-download.cjs');
 
 const root = fs.mkdtempSync(path.join(__dirname, '../work/download-'));
-const payload = crypto.randomBytes(CHUNK_SIZE * 5 + 97);
+const payload = crypto.randomBytes(CHUNK_SIZE * 12 + 97);
 const digest = crypto.createHash('sha256').update(payload).digest('hex');
 const counts = new Map();
+const throttledAt = new Map(), retryDelays = [];
 let active = 0, maxActive = 0, failPart = false, truncateOnce = false;
 const server = http.createServer((req, res) => {
   const name = req.url;
   const range = req.headers.range;
   counts.set(`${name}:${range || 'stream'}`, (counts.get(`${name}:${range || 'stream'}`) || 0) + 1);
   if (name === '/slow') return setTimeout(() => { if (!res.destroyed) { res.writeHead(503); res.end(); } }, 250);
+  if (name.startsWith('/unavailable-')) { res.writeHead(503); return res.end(); }
   if (name === '/redirect') { res.writeHead(302, { Location: '/file' }); return res.end(); }
   if (name === '/api') { assert.equal(req.headers.authorization, 'Bearer fixture-token'); res.writeHead(302, { Location: `http://127.0.0.1:${server.address().port}/file` }); return res.end(); }
   if (name === '/file') assert.equal(req.headers.authorization, undefined, 'Credential leaked across redirect');
@@ -22,6 +24,14 @@ const server = http.createServer((req, res) => {
   const match = range.match(/^bytes=(\d+)-(\d+)$/);
   if (!match) { res.writeHead(416); return res.end(); }
   const start = Number(match[1]), end = Number(match[2]);
+  if (name === '/late-ready' && end === 65535) {
+    return setTimeout(() => {
+      if (!res.destroyed) { res.writeHead(206, { 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${payload.length}` }); res.end(payload.subarray(start, end + 1)); }
+    }, 250);
+  }
+  if (name === '/late-failure' && end !== 65535) { res.writeHead(503); return res.end(); }
+  if (name === '/throttled' && end !== 65535 && active >= FALLBACK_CONNECTIONS) { throttledAt.set(range, Date.now()); res.writeHead(429, { 'Retry-After': '1' }); return res.end(); }
+  if (name === '/throttled' && throttledAt.has(range)) { retryDelays.push(Date.now() - throttledAt.get(range)); throttledAt.delete(range); }
   if (name === '/resume' && failPart && start === CHUNK_SIZE * 2) { return setTimeout(() => { res.writeHead(503); res.end(); }, 90); }
   const bytes = Buffer.from(payload.subarray(start, end + 1));
   if (name === '/corrupt' && end !== 65535) bytes[0] ^= 1;
@@ -32,7 +42,7 @@ const server = http.createServer((req, res) => {
   active++; maxActive = Math.max(maxActive, active);
   res.once('close', () => { active--; });
   res.flushHeaders();
-  setTimeout(() => res.end(bytes), name === '/large-stall' ? 20 : 220);
+  setTimeout(() => res.end(bytes), name === '/large-stall' ? 20 : name.startsWith('/bench-') ? 350 : 220);
 });
 
 (async () => {
@@ -41,15 +51,57 @@ const server = http.createServer((req, res) => {
   const update = { version: '9.9.9', size: payload.length, sha256: digest };
   const timing = { idleMs: 600, connectMs: 100, retryMs: 5 };
   const progress = [];
-  const run = (name, urls, more = {}) => downloadUpdate({ update, installerPath: path.join(root, `${name}.exe`), urls: urls.map(value => origin + value), fetch, timing, onProgress: item => progress.push(item), ...more });
+  const diagnostics = [];
+  const run = (name, urls, more = {}) => downloadUpdate({ update, installerPath: path.join(root, `${name}.exe`), urls: urls.map(value => origin + value), fetch, timing, onProgress: item => progress.push(item), onDiagnostic: item => diagnostics.push(item), ...more });
   const checks = [];
   try {
     const started = Date.now();
     await run('race', ['/slow', '/redirect']);
     assert.ok(Date.now() - started < 1500);
     assert.equal(await fs.promises.readFile(path.join(root, 'race.exe')).then(bytes => crypto.createHash('sha256').update(bytes).digest('hex')), digest);
-    assert.equal(CONNECTIONS, 4); assert.equal(maxActive, 4);
-    checks.push('Fast source wins against stalled source; four range connections retained; final digest matches');
+    assert.equal(CONNECTIONS, 8); assert.equal(maxActive, 8);
+    checks.push('Fast source wins against stalled source; eight range connections use the source pool; final digest matches');
+
+    const benchmark = {};
+    for (const connections of [4, 8]) {
+      const started = Date.now();
+      await run(`bench-${connections}`, [`/bench-${connections}`], { connections });
+      benchmark[connections] = Date.now() - started;
+    }
+    assert.ok(benchmark[8] < benchmark[4], 'Eight workers should improve the controlled per-connection-limited fixture');
+    checks.push(`Controlled local throughput comparison: four connections ${benchmark[4]} ms; eight connections ${benchmark[8]} ms (not a China Internet speed guarantee)`);
+
+    await run('pool', ['/pool-a', '/pool-b']);
+    for (const source of ['/pool-a', '/pool-b']) assert.ok([...counts.keys()].some(key => key.startsWith(source + ':bytes=') && !key.endsWith('-65535')), 'Both healthy sources must supply real ranges');
+    checks.push('Ranges are assembled from multiple healthy sources, not only the fastest probe');
+
+    await run('late-pool', ['/pool-a', '/late-ready'], { timing: { ...timing, connectMs: 600 } });
+    assert.ok([...counts.keys()].some(key => key.startsWith('/late-ready:bytes=') && !key.endsWith('-65535')));
+    checks.push('A healthy source responding after the initial probe window joins the running download');
+
+    await run('pool-failover', ['/late-failure', '/pool-b']);
+    checks.push('A source failing after a successful probe does not prevent healthy-source completion');
+
+    await run('throttled', ['/throttled']);
+    assert.ok(diagnostics.some(item => item.phase === 'concurrency-reduced' && item.connections === 4));
+    assert.ok(progress.some(item => item.connections === 4));
+    assert.ok(retryDelays.length > 0 && retryDelays.every(milliseconds => milliseconds >= 950), 'Retry-After must be observed for the retried range');
+    checks.push('HTTP 429 reduces eight workers to four and honors Retry-After before retrying');
+    assert.equal(SOURCE_POOL_LIMIT, 10);
+    await run('tenth-source', [...Array.from({ length: 9 }, (_, index) => `/unavailable-${index}`), '/tenth-healthy']);
+    await assert.rejects(run('beyond-source-limit', [...Array.from({ length: 10 }, (_, index) => `/unavailable-${index}`), '/eleventh-unused']));
+    assert.equal([...counts.keys()].some(key => key.startsWith('/eleventh-unused:')), false);
+    checks.push('The tenth trusted source is usable and an eleventh source is not requested');
+
+    const manifest = { ...update, downloadUrl: 'https://downloads.example.com/installer.exe', mirrorUrls: ['https://mirror.example.com/installer.exe'] };
+    const github = { ...update, downloadUrl: 'https://github.com/org/repo/installer.exe', assetApiUrl: 'https://api.github.com/asset' };
+    const merged = mergeUpdateSources(github, manifest);
+    assert.ok(merged.mirrorUrls.includes(manifest.mirrorUrls[0]));
+    assert.ok(merged.mirrorUrls.includes(manifest.downloadUrl));
+    assert.equal(mergeUpdateSources(github, { ...manifest, sha256: 'a'.repeat(64) }), github);
+    assert.equal(mergeUpdateSources(github, { ...manifest, size: update.size + 1 }), github);
+    assert.equal(mergeUpdateSources(github, { ...manifest, version: '1.0.0' }), github);
+    checks.push('API and manifest sources merge only for identical version, size and digest');
 
     truncateOnce = true;
     await run('retry', ['/truncated']);
@@ -91,10 +143,12 @@ const server = http.createServer((req, res) => {
 
     await run('adaptive', ['/large-stall'], { timing: { ...timing, idleMs: 100, rangeMs: 3000 } });
     assert.ok([...counts.keys()].some(key => key === '/large-stall:bytes=0-262143'));
-    checks.push('Stalled large requests automatically downgrade to 256 KB while retaining four workers');
+    checks.push('Stalled large requests downgrade block size and can fall back to four workers');
 
     await run('stream', ['/stream']);
     checks.push('Servers without Range support use checked streaming fallback');
+    await run('stream-after-range-failure', ['/late-failure', '/stream']);
+    checks.push('A non-Range fallback remains usable after the ranged source pool fails');
     await assert.rejects(run('corrupt', ['/corrupt']), /SHA-256/);
     assert.equal(fs.existsSync(path.join(root, 'corrupt.exe')), false);
     checks.push('Wrong final digest blocks installation and discards corrupt segments');

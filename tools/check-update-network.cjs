@@ -8,8 +8,8 @@ const root = path.resolve(__dirname, '..');
 const testDir = process.env.DAYAN_NETWORK_TEST_DIR || fs.mkdtempSync(path.join(root, 'work/network-'));
 const packed = process.argv.includes('--packaged');
 const live = process.argv.includes('--live');
-const payload = crypto.randomBytes(8 * 1024 * 1024 + 17);
-let origin, desktop;
+const payload = crypto.randomBytes(20 * 1024 * 1024 + 17);
+let origin, desktop, activeRanges = 0, maximumRanges = 0;
 const hash = crypto.createHash('sha256').update(payload).digest('hex');
 const server = http.createServer((req, res) => {
   if (req.url === '/redirect') { res.writeHead(302, { Location: `${origin}/file` }); return res.end(); }
@@ -18,6 +18,11 @@ const server = http.createServer((req, res) => {
   if (match) {
     const start = Number(match[1]), end = Number(match[2]);
     res.writeHead(206, { 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${payload.length}` });
+    if (end !== 65535) {
+      activeRanges++; maximumRanges = Math.max(maximumRanges, activeRanges);
+      res.once('close', () => { activeRanges--; }); res.flushHeaders();
+      return setTimeout(() => { if (!res.destroyed) res.end(payload.subarray(start, end + 1)); }, 40);
+    }
     return res.end(payload.subarray(start, end + 1));
   }
   res.writeHead(200, { 'Content-Length': payload.length }); res.end(payload);
@@ -70,7 +75,7 @@ const server = http.createServer((req, res) => {
     return { ...downloaded, systemTransportHash, seconds: (Date.now() - started) / 1000, live: args.live, version: update.version };
   }, { origin, hash, size: payload.length, testDir, live });
   assert.equal(result.actualHash.length, 64);
-  if (!live) { assert.equal(result.actualHash, hash); assert.equal(result.systemTransportHash, hash); }
+  if (!live) { assert.equal(result.actualHash, hash); assert.equal(result.systemTransportHash, hash); assert.equal(maximumRanges, 8, 'Real Electron downloader must run eight fixture ranges concurrently'); }
   // Inspect compatibility without changing user policies or launching UAC.
   const status = await page.evaluate(() => window.dayan.securityPolicyStatus());
   assert.equal(status.error, ''); assert.equal(status.policies.length, 6);
@@ -87,7 +92,7 @@ const server = http.createServer((req, res) => {
     assert.ok(body.height >= 75, `Settings body is too small to inspect authorization status: ${body.height}px at ${width}px`);
   }
   assert.deepEqual(errors, []);
-  const report = { result: 'passed', packaged: packed, network: result, system: { productName: status.productName, editionId: status.editionId, fullProtectionSupported: status.fullProtectionSupported, keyboardFilterEnabled: status.keyboardFilterEnabled }, checks: ['Fixture window remains hidden and its update is visibly marked as a test', 'Renderer button and main-process IPC both reject installing a fixture update', 'Update manifest works through isolated Chromium session despite renderer network restrictions', 'Full download passes SHA-256 in real Electron network stack', 'Windows edition and six protection status rows returned without elevation'], errors };
+  const report = { result: 'passed', packaged: packed, network: { ...result, fixtureMaximumRanges: maximumRanges }, system: { productName: status.productName, editionId: status.editionId, fullProtectionSupported: status.fullProtectionSupported, keyboardFilterEnabled: status.keyboardFilterEnabled }, checks: ['Fixture window remains hidden and its update is visibly marked as a test', 'Renderer button and main-process IPC both reject installing a fixture update', 'Update manifest works through isolated Chromium session despite renderer network restrictions', 'Full download passes SHA-256 in real Electron network stack', 'Windows edition and six protection status rows returned without elevation'], errors };
   fs.writeFileSync(path.join(testDir, 'validation.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify({ ...report, testDir }, null, 2));
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {

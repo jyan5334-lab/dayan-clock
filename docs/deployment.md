@@ -76,7 +76,7 @@ npm run dist:mac
 
 启动时由 Electron 主进程检查 GitHub Release API 和 Release 的 `update.json`；设置 `DAYAN_UPDATE_MANIFEST_URL` 时使用指定清单。Release 数据需包含 `tag_name`、匹配版本的 `DAYANClock-Setup-<版本>-x64.exe` 资产及 SHA-256 摘要。自定义清单格式为 `{"version":"1.6.8","downloadUrl":"https://.../DAYANClock-Setup-1.6.8-x64.exe","size":123456789,"mirrorUrls":["https://自有镜像/..."],"sha256":"64位十六进制摘要","notes":"更新说明"}`。没有有效摘要会拒绝下载。发现更高版本后，程序只显示“确定更新”，下载、校验并重启安装。
 
-当前仓库为 Public，普通安装包可以匿名访问 GitHub API 和 Release 资产。下载前探测直连、系统代理/PAC 及可信镜像，选择可用线路后维持四连接、2 MB 分段下载。完整分段及各自摘要保存在用户数据目录的 `updates/downloads`，重试和程序重开后复检续传；最终安装包必须通过发布清单的 SHA-256 验证。GitHub Token 只发送给 API 域名，不转交 CDN 或镜像。
+当前仓库为 Public，普通安装包可以匿名访问 GitHub API 和 Release 资产。下载前探测直连、系统代理/PAC 及可信镜像，随后最多使用 10 个可信地址组成下载池，默认以 8 个并发工作连接请求 2 MB 分段；网络波动或限流时退回 4 路，遵守服务器的重试等待时间。不同分段会分配到健康地址，稍晚探测成功的通道也可加入；复用跳转后的地址以减少请求开销，线路失败时自动换地址，已完成分段继续保留。完整分段及各自摘要保存在用户数据目录的 `updates/downloads`，重试和程序重开后复检续传；最终安装包必须通过发布清单的 SHA-256 验证。GitHub Token 只发送给 API 域名，不转交 CDN 或镜像。
 
 跨境链路不能仅靠客户端保证稳定速度。发布方应将安装包同步到自己控制的国内对象存储或 CDN，在可信清单的 `mirrorUrls` 中填写 HTTPS 地址，并同步正确的大小和 SHA-256。没有部署的地址不能填写，不使用未知公共下载代理。`DAYAN_GITHUB_TOKEN` 只适合受控内部环境，不编译进客户端。
 

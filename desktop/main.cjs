@@ -8,7 +8,7 @@ const { prepareUpdateInstall } = require('./update-install.cjs');
 const { createDesktopHost } = require('./windows-desktop.cjs');
 const { createWallpaperControls } = require('./wallpaper-controls.cjs');
 const { createKeyboardGuard } = require('./keyboard-guard.cjs');
-const { downloadUpdate } = require('./update-download.cjs');
+const { downloadUpdate, mergeUpdateSources, SOURCE_POOL_LIMIT } = require('./update-download.cjs');
 const { networkFetch, downloadTransports } = require('./update-network.cjs');
 const { resolveUpdateMode } = require('./update-mode.cjs');
 const { migrateLegacyBackups, hasBackups, matchesRestoredPolicies } = require('./policy-backups.cjs');
@@ -135,7 +135,8 @@ function describeUpdateError(error) {
 }
 
 function updateDownloadUrls(update) {
-  return [...new Set([...(update.mirrorUrls || []), update.assetApiUrl, update.downloadUrl].filter(value => typeof value === 'string' && value.trim()))];
+  const official = [update.assetApiUrl, update.downloadUrl].filter(value => typeof value === 'string' && value.trim());
+  return [...new Set([...(update.mirrorUrls || []).slice(0, SOURCE_POOL_LIMIT - official.length), ...official])];
 }
 
 
@@ -154,6 +155,7 @@ async function checkForUpdates({ notifyRenderer = true } = {}) {
     const configuredEndpoint = updateMode.fixtureUrl || process.env.DAYAN_UPDATE_MANIFEST_URL;
     const endpoints = configuredEndpoint ? [configuredEndpoint] : [UPDATE_REPOSITORY_API, UPDATE_PUBLIC_MANIFEST];
     let remote;
+    const candidates = [];
     try {
       remote = await Promise.any(endpoints.map(async endpoint => {
         const headers = new URL(endpoint).hostname === 'api.github.com' ? updateHeaders() : { 'User-Agent': 'DAYANClock-Updater', Accept: 'application/json' };
@@ -161,9 +163,12 @@ async function checkForUpdates({ notifyRenderer = true } = {}) {
         if (!response.ok) throw Error(`更新检查失败（HTTP ${response.status}）`);
         const candidate = normalizeUpdatePayload(await response.json());
         if (!candidate) throw Error('更新清单格式无效');
+        candidates.push(candidate);
+        if (updateInfo) updateInfo = mergeUpdateSources(updateInfo, candidate);
         return candidate;
       }));
     } catch (error) { throw Error(describeUpdateError(error.errors?.[0] || error)); }
+    for (const candidate of candidates) remote = mergeUpdateSources(remote, candidate);
     if (!remote || !isNewerVersion(remote.version, app.getVersion())) { updateInfo = null; return { available: false, currentVersion: app.getVersion(), checkedAt: new Date().toISOString() }; }
     updateInfo = { ...remote, currentVersion: app.getVersion(), testOnly: Boolean(updateMode.fixtureUrl) };
     if (notifyRenderer && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dayan:update-available', updateInfo);
