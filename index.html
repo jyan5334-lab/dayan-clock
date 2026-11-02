@@ -82,7 +82,14 @@
       <strong id="update-title">有新版本需要更新</strong>
       <p id="update-version"></p>
       <p id="update-notes" class="update-notes"></p>
-      <div id="update-progress-wrap" hidden><div class="update-progress"><span id="update-progress-bar"></span></div><p id="update-progress-text">准备下载…</p></div>
+      <div id="update-progress-wrap" hidden>
+        <div class="update-progress" role="progressbar" aria-label="更新下载进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="update-progress-bar"></span></div>
+        <div class="update-download-summary">
+          <p class="update-download-size"><span id="update-downloaded">已下载 0 MB</span><span id="update-total">总大小 获取中…</span></p>
+          <p id="update-percent">0%</p>
+        </div>
+        <div class="update-download-status"><p id="update-progress-text">准备下载…</p><p id="update-speed"></p></div>
+      </div>
       <button id="update-confirm" class="update-confirm" type="button"><i data-lucide="download"></i><span>确定更新</span></button>
       <p id="update-error" class="security-error" role="alert" hidden></p>
     </div>

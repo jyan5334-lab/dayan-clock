@@ -46,10 +46,15 @@
   const updateProgressWrap = document.getElementById('update-progress-wrap');
   const updateProgressBar = document.getElementById('update-progress-bar');
   const updateProgressText = document.getElementById('update-progress-text');
+  const updateDownloaded = document.getElementById('update-downloaded');
+  const updateTotal = document.getElementById('update-total');
+  const updatePercent = document.getElementById('update-percent');
+  const updateSpeed = document.getElementById('update-speed');
   const updateConfirm = document.getElementById('update-confirm');
   const updateError = document.getElementById('update-error');
   let policyRequest, policyBusy = false, lastPolicy, returnToSettings = false;
   let chromeTimer;
+  let downloadProgress = {};
   let style = 1, widget;
   let displaySettings = { showAlmanac: true, modes: { clock: false, watch: true, down: true, up: true } };
   let autoStartEnabled = true;
@@ -362,6 +367,7 @@
     else updateCheckStatus.textContent = result?.error || `当前已是最新版本（${result?.currentVersion || '未知'}）`;
   });
   const showUpdate = info => {
+    downloadProgress = { received: 0, total: info.size || 0, percent: 0 };
     document.getElementById('update-title').textContent = info.testOnly ? '本地更新测试 · 禁止安装' : '有新版本需要更新';
     if (info.testOnly) {
       document.title = 'DAYAN桌面 · 本地更新测试';
@@ -378,10 +384,21 @@
   };
   bridge.onUpdateAvailable(showUpdate);
   bridge.onUpdateProgress(progress => {
+    downloadProgress = { ...downloadProgress, ...progress };
+    const total = Math.max(0, Number(downloadProgress.total) || 0);
+    const received = Math.max(0, Math.min(Number(downloadProgress.received) || 0, total || Infinity));
+    const percent = Math.max(0, Math.min(100, Number(downloadProgress.percent) || 0));
+    const megabytes = bytes => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
     updateProgressWrap.hidden = false;
-    updateProgressBar.style.width = `${Math.round(progress.percent || 0)}%`;
-    updateProgressText.textContent = progress.status || (progress.total ? `正在下载 ${Math.round(progress.percent)}%` : '正在下载更新…');
-    if (updateConfirm.disabled) updateConfirm.querySelector('span').textContent = progress.percent >= 100 ? '正在启动安装程序…' : '正在下载更新…';
+    updateProgressBar.style.width = `${percent}%`;
+    updateProgressBar.parentElement.setAttribute('aria-valuenow', String(percent));
+    updateProgressBar.parentElement.setAttribute('aria-valuetext', `${megabytes(received)} / ${total ? megabytes(total) : '大小获取中'}，${percent.toFixed(1)}%`);
+    updateDownloaded.textContent = `已下载 ${megabytes(received)}`;
+    updateTotal.textContent = total ? `总大小 ${megabytes(total)}` : '总大小 获取中…';
+    updatePercent.textContent = `${percent.toFixed(1)}%`;
+    updateProgressText.textContent = (progress.status || '正在下载更新…').replace(/\s*·\s*[\d.]+\s*MB\/s\s*$/, '');
+    updateSpeed.textContent = percent >= 100 ? '' : `${megabytes(Math.max(0, Number(downloadProgress.bytesPerSecond) || 0))}/s`;
+    if (updateConfirm.disabled) updateConfirm.querySelector('span').textContent = percent >= 100 ? '正在启动安装程序…' : '正在下载更新…';
   });
   bridge.onUpdateError(error => {
     updateError.textContent = error?.message || '更新失败，请稍后重试';

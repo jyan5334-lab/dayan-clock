@@ -13,7 +13,7 @@ let origin, desktop, activeRanges = 0, maximumRanges = 0;
 const hash = crypto.createHash('sha256').update(payload).digest('hex');
 const server = http.createServer((req, res) => {
   if (req.url === '/redirect') { res.writeHead(302, { Location: `${origin}/file` }); return res.end(); }
-  if (req.url === '/manifest') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ version: '9.9.9', sha256: hash, size: payload.length, downloadUrl: `${origin}/file` })); }
+  if (req.url === '/manifest') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ version: '9.9.9', sha256: hash, size: payload.length, downloadUrl: `${origin}/file`, notes: '本地测试更新说明，仅验证界面，禁止安装。\n'.repeat(16) })); }
   const match = req.headers.range?.match(/^bytes=(\d+)-(\d+)$/);
   if (match) {
     const start = Number(match[1]), end = Number(match[2]);
@@ -44,7 +44,7 @@ const server = http.createServer((req, res) => {
   assert.equal(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().every(window => !window.isVisible())), true, 'Fixture window must remain hidden');
   const install = await page.evaluate(() => window.dayan.updateInstall());
   assert.equal(install.ok, false); assert.match(install.error, /测试/);
-  const result = await desktop.evaluate(async ({ app, session }, args) => {
+  const result = await desktop.evaluate(async ({ app, session, BrowserWindow }, args) => {
     const path = process.mainModule.require('node:path');
     const fs = process.mainModule.require('node:fs');
     const { downloadUpdate } = process.mainModule.require(path.join(app.getAppPath(), 'desktop/update-download.cjs'));
@@ -63,7 +63,7 @@ const server = http.createServer((req, res) => {
     let lastLog = 0;
     const downloaded = await downloadUpdate({ update, installerPath: path.join(args.testDir, 'checked-download.exe'), urls, fetch: networkFetch, transports: downloadTransports,
       onDiagnostic: record => fs.appendFileSync(path.join(args.testDir, 'network-trace.jsonl'), JSON.stringify(record) + '\n'),
-      onProgress: progress => { if (Date.now() - lastLog > 5000) { lastLog = Date.now(); fs.appendFileSync(path.join(args.testDir, 'network-trace.jsonl'), JSON.stringify({ phase: 'progress', at: new Date().toISOString(), bytes: progress.received, total: progress.total, transport: progress.transport }) + '\n'); } } });
+      onProgress: progress => { BrowserWindow.getAllWindows()[0].webContents.send('dayan:update-progress', progress); if (Date.now() - lastLog > 5000) { lastLog = Date.now(); fs.appendFileSync(path.join(args.testDir, 'network-trace.jsonl'), JSON.stringify({ phase: 'progress', at: new Date().toISOString(), bytes: progress.received, total: progress.total, transport: progress.transport }) + '\n'); } } });
     let systemTransportHash;
     if (!args.live) {
       const systemTransport = downloadTransports.find(item => item.name === 'system');
@@ -76,6 +76,39 @@ const server = http.createServer((req, res) => {
   }, { origin, hash, size: payload.length, testDir, live });
   assert.equal(result.actualHash.length, 64);
   if (!live) { assert.equal(result.actualHash, hash); assert.equal(result.systemTransportHash, hash); assert.equal(maximumRanges, 8, 'Real Electron downloader must run eight fixture ranges concurrently'); }
+  await page.waitForFunction(() => document.getElementById('update-percent').textContent === '100.0%');
+  assert.equal(await page.locator('#update-total').innerText(), `总大小 ${(result.total / 1024 / 1024).toFixed(1)} MB`);
+  const sendProgress = async progress => {
+    await desktop.evaluate(({ BrowserWindow }, value) => BrowserWindow.getAllWindows()[0].webContents.send('dayan:update-progress', value), progress);
+    await page.waitForFunction(status => document.getElementById('update-progress-text').textContent === status, progress.status.replace(/\s*·\s*[\d.]+\s*MB\/s\s*$/, ''));
+  };
+  for (const connections of [4, 8]) {
+    await sendProgress({ received: 32 * 1024 * 1024, total: 128 * 1024 * 1024, percent: 25, connections, bytesPerSecond: 1.75 * 1024 * 1024, status: `正在${connections}路并行下载… · 1.8 MB/s` });
+    assert.equal(await page.locator('#update-downloaded').innerText(), '已下载 32.0 MB');
+    assert.equal(await page.locator('#update-total').innerText(), '总大小 128.0 MB');
+    assert.equal(await page.locator('#update-percent').innerText(), '25.0%');
+    assert.equal(await page.locator('#update-speed').innerText(), '1.8 MB/s');
+    assert.equal(await page.locator('.update-progress').getAttribute('aria-valuenow'), '25');
+  }
+  for (const [width, height] of [[480, 341], [800, 568], [1920, 1080]]) {
+    await desktop.evaluate(({ BrowserWindow }, bounds) => BrowserWindow.getAllWindows()[0].setBounds(bounds), { width, height });
+    await page.locator('#update-progress-wrap').scrollIntoViewIfNeeded();
+    const layout = await page.evaluate(() => {
+      const rect = id => { const { top, bottom, left, right } = document.getElementById(id).getBoundingClientRect(); return { top, bottom, left, right }; };
+      return { bar: rect('update-progress-bar'), summary: rect('update-total'), percent: rect('update-percent'), status: rect('update-progress-text'), speed: rect('update-speed'), button: rect('update-confirm'), wrap: rect('update-progress-wrap') };
+    });
+    assert.ok(layout.summary.top >= layout.bar.bottom + 5, 'Size details must be separated from the progress bar');
+    assert.ok(layout.status.top >= Math.max(layout.summary.bottom, layout.percent.bottom), 'Status must be below download amounts');
+    assert.ok(layout.speed.left > layout.status.right, 'Speed and transfer status must not overlap');
+    assert.ok(layout.button.top >= layout.wrap.bottom + 8, 'Download information must not overlap the action button');
+    await page.screenshot({ path: path.join(testDir, `update-progress-${width}.png`) });
+  }
+  await sendProgress({ received: 128 * 1024 * 1024, percent: 100, status: '安装包校验通过，准备安装…' });
+  await sendProgress({ percent: 100, status: '正在打开安装程序，安装完成后将自动重启…' });
+  assert.equal(await page.locator('#update-downloaded').innerText(), '已下载 128.0 MB');
+  assert.equal(await page.locator('#update-total').innerText(), '总大小 128.0 MB');
+  assert.equal(await page.locator('#update-percent').innerText(), '100.0%');
+  assert.equal(await page.locator('#update-speed').innerText(), '');
   // Inspect compatibility without changing user policies or launching UAC.
   const status = await page.evaluate(() => window.dayan.securityPolicyStatus());
   assert.equal(status.error, ''); assert.equal(status.policies.length, 6);
@@ -92,7 +125,7 @@ const server = http.createServer((req, res) => {
     assert.ok(body.height >= 75, `Settings body is too small to inspect authorization status: ${body.height}px at ${width}px`);
   }
   assert.deepEqual(errors, []);
-  const report = { result: 'passed', packaged: packed, network: { ...result, fixtureMaximumRanges: maximumRanges }, system: { productName: status.productName, editionId: status.editionId, fullProtectionSupported: status.fullProtectionSupported, keyboardFilterEnabled: status.keyboardFilterEnabled }, checks: ['Fixture window remains hidden and its update is visibly marked as a test', 'Renderer button and main-process IPC both reject installing a fixture update', 'Update manifest works through isolated Chromium session despite renderer network restrictions', 'Full download passes SHA-256 in real Electron network stack', 'Windows edition and six protection status rows returned without elevation'], errors };
+  const report = { result: 'passed', packaged: packed, network: { ...result, fixtureMaximumRanges: maximumRanges }, system: { productName: status.productName, editionId: status.editionId, fullProtectionSupported: status.fullProtectionSupported, keyboardFilterEnabled: status.keyboardFilterEnabled }, checks: ['Fixture window remains hidden and its update is visibly marked as a test', 'Renderer button and main-process IPC both reject installing a fixture update', 'Update manifest works through isolated Chromium session despite renderer network restrictions', 'Full download passes SHA-256 in real Electron network stack', 'Downloaded size, total, percentage, speed and four/eight-connection status are shown separately', 'Long notes and download details do not overlap at 480, 800 and 1920 pixels', 'Installer handoff status retains completed byte totals and clears transfer speed', 'Windows edition and six protection status rows returned without elevation'], errors };
   fs.writeFileSync(path.join(testDir, 'validation.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify({ ...report, testDir }, null, 2));
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
