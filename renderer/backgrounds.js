@@ -98,5 +98,45 @@ window.timerBackgrounds = [
     "id": "neon-rain",
     "label": "雨夜霓城",
     "src": "assets/backgrounds/neon-rain.png"
+  },
+  {
+    "id": "hacker-matrix",
+    "label": "黑客矩阵",
+    "group": "黑客动态",
+    "kind": "html",
+    "src": "assets/backgrounds/hacker/hacker-wallpaper.html?skin=matrix&embed=1&quiet=1",
+    "thumb": "assets/backgrounds/hacker/preview-matrix.png"
+  },
+  {
+    "id": "hacker-cyber",
+    "label": "黑客赛博",
+    "group": "黑客动态",
+    "kind": "html",
+    "src": "assets/backgrounds/hacker/hacker-wallpaper.html?skin=cyber&embed=1&quiet=1",
+    "thumb": "assets/backgrounds/hacker/preview-cyber.png"
+  },
+  {
+    "id": "hacker-amber",
+    "label": "黑客琥珀",
+    "group": "黑客动态",
+    "kind": "html",
+    "src": "assets/backgrounds/hacker/hacker-wallpaper.html?skin=amber&embed=1&quiet=1",
+    "thumb": "assets/backgrounds/hacker/preview-amber.png"
+  },
+  {
+    "id": "hacker-crimson",
+    "label": "黑客猩红",
+    "group": "黑客动态",
+    "kind": "html",
+    "src": "assets/backgrounds/hacker/hacker-wallpaper.html?skin=crimson&embed=1&quiet=1",
+    "thumb": "assets/backgrounds/hacker/preview-crimson.png"
+  },
+  {
+    "id": "hacker-violet",
+    "label": "黑客紫电",
+    "group": "黑客动态",
+    "kind": "html",
+    "src": "assets/backgrounds/hacker/hacker-wallpaper.html?skin=violet&embed=1&quiet=1",
+    "thumb": "assets/backgrounds/hacker/preview-violet.png"
   }
-].map(item => ({ ...item, src: new URL(item.src, document.baseURI).href }));
+].map(item => ({ ...item, src: new URL(item.src, document.baseURI).href, thumb: item.thumb ? new URL(item.thumb, document.baseURI).href : undefined }));

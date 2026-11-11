@@ -158,6 +158,11 @@
           <div class="settings-heading"><strong>全屏窗口层级</strong></div>
           <p>以下选项只影响点击“全屏”后的窗口层级，普通窗口仍由顶部的置顶按钮控制。</p>
           <fieldset class="layer-group">
+            <legend>多屏显示范围</legend>
+            <label class="setting-radio"><input type="radio" name="display-scope" value="current" data-window-scope><span>当前显示器</span><small>只在点击全屏时所在的显示器显示</small></label>
+            <label class="setting-radio"><input type="radio" name="display-scope" value="all" data-window-scope><span>全部显示器</span><small>覆盖整个虚拟桌面，多屏同时显示</small></label>
+          </fieldset>
+          <fieldset class="layer-group">
             <legend>未锁定时</legend>
             <label class="setting-radio"><input type="radio" name="unlocked-window-layer" value="top" data-window-layer="unlocked"><span>置顶模式</span><small>覆盖其他窗口，适合持续展示</small></label>
             <label class="setting-radio"><input type="radio" name="unlocked-window-layer" value="bottom" data-window-layer="unlocked"><span>置底模式</span><small>尽量放到桌面窗口底部，作为桌面背景展示</small></label>

@@ -39,7 +39,8 @@ function normalizeDisplaySettings(value) {
 function normalizeWindowLayers(value) {
   return {
     unlocked: value?.unlocked === 'bottom' ? 'bottom' : DEFAULT_WINDOW_LAYERS.unlocked,
-    locked: value?.locked === 'bottom' ? 'bottom' : DEFAULT_WINDOW_LAYERS.locked
+    locked: value?.locked === 'bottom' ? 'bottom' : DEFAULT_WINDOW_LAYERS.locked,
+    displayScope: value?.displayScope === 'all' ? 'all' : 'current'
   };
 }
 
@@ -446,6 +447,16 @@ function presentationDisplay() {
   return display;
 }
 
+function presentationArea() {
+  if (normalizeWindowLayers(state.windowLayers).displayScope !== 'all') return presentationDisplay();
+  const displays = screen.getAllDisplays();
+  const left = Math.min(...displays.map(item => item.bounds.x));
+  const top = Math.min(...displays.map(item => item.bounds.y));
+  const right = Math.max(...displays.map(item => item.bounds.x + item.bounds.width));
+  const bottom = Math.max(...displays.map(item => item.bounds.y + item.bounds.height));
+  return { id: 'all-displays', bounds: { x: left, y: top, width: right - left, height: bottom - top } };
+}
+
 function setDesktopWindowMode(hosted, display) {
   if (!desktopHost || !mainWindow || mainWindow.isDestroyed()) return Promise.resolve();
   desktopHostDesired = hosted;
@@ -454,7 +465,7 @@ function setDesktopWindowMode(hosted, display) {
   desktopHostQueue = desktopHostQueue.catch(() => {}).then(async () => {
     if (request !== desktopHostRequest || window.isDestroyed()) return;
     if (hosted) {
-      const area = (display || presentationDisplay()).bounds;
+      const area = (display || presentationArea()).bounds;
       await desktopHost.attach(window, screen.dipToScreenRect(window, area));
     }
     else await desktopHost.detach(window);
@@ -480,7 +491,7 @@ function setDesktopWindowMode(hosted, display) {
 
 function applyPresentationWindow(refreshBounds = false) {
   if (!mainWindow || mainWindow.isDestroyed() || !isPresentationFullscreen()) return;
-  const display = presentationDisplay();
+  const display = presentationArea();
   if (fullscreenLayer() === 'bottom' && !securityLocked && desktopHost) {
     if (!desktopHostDesired && !desktopWindowHosted) {
       // Enter Chromium fullscreen before parenting so its client area has no resize insets.

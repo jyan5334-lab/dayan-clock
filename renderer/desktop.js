@@ -37,7 +37,7 @@
   const autoStart = document.getElementById('auto-start');
   const autoStartStatus = document.getElementById('auto-start-status');
   const aboutVersion = document.getElementById('about-version');
-  const windowLayerInputs = [...document.querySelectorAll('[data-window-layer]')];
+  const windowLayerInputs = [...document.querySelectorAll('[data-window-layer],[data-window-scope]')];
   const checkUpdate = document.getElementById('check-update');
   const updateCheckStatus = document.getElementById('update-check-status');
   const updateModal = document.getElementById('update-modal');
@@ -58,7 +58,7 @@
   let style = 1, widget;
   let displaySettings = { showAlmanac: true, modes: { clock: false, watch: true, down: true, up: true } };
   let autoStartEnabled = true;
-  let windowLayers = { unlocked: 'top', locked: 'top' };
+  let windowLayers = { unlocked: 'top', locked: 'top', displayScope: 'current' };
   let security = { passwordConfigured: false, locked: false };
 
   const fit = () => {
@@ -162,7 +162,7 @@
     autoStartStatus.textContent = autoStartEnabled ? '当前状态：已开启' : '当前状态：已关闭';
   };
   const syncWindowLayers = () => {
-    windowLayerInputs.forEach(input => { input.checked = windowLayers[input.dataset.windowLayer] === input.value; });
+    windowLayerInputs.forEach(input => { const key = input.dataset.windowLayer || 'displayScope'; input.checked = windowLayers[key] === input.value; });
   };
   const openSettings = (refresh = true) => {
     if (security.locked) return;
@@ -311,7 +311,7 @@
   showAlmanac.addEventListener('change', () => { displaySettings = { ...displaySettings, showAlmanac: showAlmanac.checked }; syncDisplaySettings(); save(); });
   modeVisibility.forEach(input => input.addEventListener('change', () => { displaySettings = { ...displaySettings, modes: { ...displaySettings.modes, [input.dataset.modeVisibility]: input.checked } }; syncDisplaySettings(); save(); }));
   windowLayerInputs.forEach(input => input.addEventListener('change', () => {
-    windowLayers = { ...windowLayers, [input.dataset.windowLayer]: input.value };
+    windowLayers = { ...windowLayers, [input.dataset.windowLayer || 'displayScope']: input.value };
     syncWindowLayers();
     save();
   }));
