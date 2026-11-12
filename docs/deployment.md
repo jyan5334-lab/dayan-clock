@@ -43,6 +43,10 @@ npm run dist:win
 
 第一条生成 `release/win-unpacked/`，第二条通过项目的 Windows 构建入口生成 `release/DAYANClock-Setup-<版本>-x64.exe`。`dist:win` 已包含当前项目的 NSIS 卸载程序处理，正式打包请使用这个脚本。
 
+需要把构建产物放在 D 盘等指定位置时，先设置 `DAYAN_RELEASE_DIR` 为绝对目录；Windows 构建入口、`prepare-release.cjs` 和 `publish-release.cjs` 均使用该目录。各步骤必须保持相同的环境变量值。
+
+`npm run test:tray` 在独立配置下验证托盘菜单、全屏恢复窗口、样式与背景持久化、模拟登录启动及锁屏禁用菜单。需要 Playwright，支持 `DAYAN_PLAYWRIGHT_MODULE`；临时数据默认放在 `D:/Codex/Temp`，可通过 `DAYAN_TEST_ROOT` 更改。构建后运行 `node tools/check-tray.cjs --packaged` 验证包内程序；该测试不替代真实关机、登录和实体设备验收。
+
 Windows 启动与打包入口使用系统 Windows PowerShell 和 .NET 编译 `desktop/update-host.cs`，生成独立的更新辅助程序。`assets/DAYANUpdateHost.exe` 是构建产物，不提交到 Git；源码 ZIP 解压后按上述命令可重新生成。使用者安装后无需另行编译或配置。
 
 同一步骤还会编译 `desktop/desktop-host.cs`，生成 `assets/DAYANDesktopHost.exe`。它负责桌面图标层下方的原生窗口挂接，也不提交到 Git。可选的 `npm run test:desktop-shell` 需要已安装的 Playwright，或通过 `DAYAN_PLAYWRIGHT_MODULE` 指定其模块路径；它会在独立测试数据下检查真实桌面图标层和右键菜单，不操作桌面文件。

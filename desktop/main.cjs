@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, Menu, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Menu, Tray, dialog } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -23,7 +23,7 @@ const PASSWORD_ITERATIONS = 210000;
 const UPDATE_REPOSITORY_API = 'https://api.github.com/repos/jyan5334-lab/dayan-clock/releases/latest';
 const UPDATE_PUBLIC_MANIFEST = 'https://github.com/jyan5334-lab/dayan-clock/releases/latest/download/update.json';
 const DEFAULT_DISPLAY_SETTINGS = Object.freeze({ showAlmanac: true, modes: Object.freeze({ clock: false, watch: true, down: true, up: true }) });
-let mainWindow, state = {}, resizeSession, saveTimer, securityLocked = false, quitting = false;
+let mainWindow, tray, state = {}, resizeSession, saveTimer, securityLocked = false, quitting = false, openedAtLogin = false;
 let windowedBounds, presentationRequested = false, restoringBounds = false, restoreBoundsTimer, desktopWindowHosted = false;
 let presentationDisplayId;
 let desktopHost, wallpaperControls, desktopHostDesired = false, desktopHostQueue = Promise.resolve(), desktopHostRequest = 0;
@@ -47,7 +47,7 @@ function normalizeWindowLayers(value) {
 function applyAutoStart(enabled) {
   const value = enabled !== false;
   if (process.env.DAYAN_TEST === '1') return value;
-  try { app.setLoginItemSettings({ openAtLogin: value, path: process.execPath, args: [] }); }
+  try { app.setLoginItemSettings({ openAtLogin: value, path: process.execPath, args: process.platform === 'win32' ? ['--dayan-login-start'] : [] }); }
   catch (error) { console.error('Unable to configure auto-start:', error.message); }
   return value;
 }
@@ -172,6 +172,7 @@ async function checkForUpdates({ notifyRenderer = true } = {}) {
     for (const candidate of candidates) remote = mergeUpdateSources(remote, candidate);
     if (!remote || !isNewerVersion(remote.version, app.getVersion())) { updateInfo = null; return { available: false, currentVersion: app.getVersion(), checkedAt: new Date().toISOString() }; }
     updateInfo = { ...remote, currentVersion: app.getVersion(), testOnly: Boolean(updateMode.fixtureUrl) };
+    if (notifyRenderer && !securityLocked && (desktopHostDesired || desktopWindowHosted)) await runTrayAction('update');
     if (notifyRenderer && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dayan:update-available', updateInfo);
     return { available: true, ...updateInfo };
   })().catch(error => {
@@ -413,6 +414,7 @@ function restoreWindowedBounds() {
   const bounds = fitBounds(previous, screen.getDisplayMatching(previous).workArea);
   mainWindow.setAspectRatio(RATIO);
   mainWindow.setBounds(bounds, false);
+  mainWindow.setSkipTaskbar(updateMode.hideWindow);
   windowedBounds = bounds;
   state.bounds = bounds;
   restoringBounds = false;
@@ -433,7 +435,51 @@ async function leavePresentation() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.setKiosk(false);
   mainWindow.setFullScreen(false);
+  mainWindow.setSkipTaskbar(updateMode.hideWindow);
   queueWindowedRestore();
+}
+
+async function runTrayAction(action) {
+  if (!mainWindow || mainWindow.isDestroyed() || securityLocked) return false;
+  if (action === 'exit') {
+    quitting = true;
+    app.quit();
+    return true;
+  }
+  if (isPresentationFullscreen()) await leavePresentation();
+  await new Promise(resolve => setTimeout(resolve, 140));
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  if (action === 'settings') mainWindow.webContents.send('dayan:desktop-command', 'settings-toggle');
+  if (action === 'style') mainWindow.webContents.send('dayan:desktop-command', 'style-toggle');
+  if (action === 'background') mainWindow.webContents.send('dayan:desktop-command', 'background');
+  return true;
+}
+
+function refreshTrayMenu() {
+  if (!tray || tray.isDestroyed()) return;
+  const enabled = !securityLocked && Boolean(mainWindow && !mainWindow.isDestroyed());
+  const contextMenu = Menu.buildFromTemplate([
+    { label: '设置', enabled, click: () => runTrayAction('settings').catch(error => console.error('Tray settings failed:', error.message)) },
+    { label: '切换样式', enabled, click: () => runTrayAction('style').catch(error => console.error('Tray style menu failed:', error.message)) },
+    { label: '切换背景', enabled, click: () => runTrayAction('background').catch(error => console.error('Tray background menu failed:', error.message)) },
+    { label: '最小化（回到窗口）', enabled, click: () => runTrayAction('minimize').catch(error => console.error('Tray minimize failed:', error.message)) },
+    { type: 'separator' },
+    { label: '退出', enabled, click: () => runTrayAction('exit').catch(error => console.error('Tray exit failed:', error.message)) }
+  ]);
+  tray.setContextMenu(contextMenu);
+  if (process.env.DAYAN_TEST === '1') globalThis.__dayanTrayMenu = contextMenu;
+}
+
+function createTray() {
+  if (tray || process.platform === 'linux') return;
+  tray = new Tray(path.join(__dirname, '../assets/icon.png'));
+  if (process.env.DAYAN_TEST === '1') globalThis.__dayanTray = tray;
+  tray.setToolTip(APP_NAME);
+  tray.on('double-click', () => runTrayAction('minimize').catch(error => console.error('Tray restore failed:', error.message)));
+  refreshTrayMenu();
 }
 
 function fullscreenLayer() {
@@ -505,6 +551,7 @@ function applyPresentationWindow(refreshBounds = false) {
   if (!mainWindow || mainWindow.isDestroyed() || !isPresentationFullscreen()) return;
   const display = presentationArea();
   if (fullscreenLayer() === 'bottom' && !securityLocked && desktopHost) {
+    mainWindow.setSkipTaskbar(true);
     if (!desktopHostDesired && !desktopWindowHosted) {
       // Enter Chromium fullscreen before parenting so its client area has no resize insets.
       mainWindow.setFullScreen(true);
@@ -523,6 +570,7 @@ function applyPresentationWindow(refreshBounds = false) {
       // virtual desktop so the lock surface also covers secondary monitors.
       mainWindow.setKiosk(securityLocked && !virtualDesktop);
       mainWindow.setFullScreen(!virtualDesktop);
+      mainWindow.setSkipTaskbar(true);
       mainWindow.setBounds(display.bounds, false);
       mainWindow.setAlwaysOnTop(fullscreenLayer() !== 'bottom', securityLocked ? 'screen-saver' : 'floating');
       if (securityLocked) mainWindow.focus();
@@ -549,6 +597,7 @@ function restorePinnedState() {
 }
 function notify() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  refreshTrayMenu();
   mainWindow.webContents.send('dayan:window-state', { pinned: state.pinned === true, fullscreen: isPresentationFullscreen(), desktopHosted: desktopWindowHosted, windowLayers: normalizeWindowLayers(state.windowLayers), presentationLayout: presentationLayout(), ...securitySnapshot() });
 }
 
@@ -738,7 +787,22 @@ function createWindow() {
     if (presentationRequested || securityLocked) { applyPresentationWindow(); notify(); }
     else queueWindowedRestore();
   });
-  mainWindow.once('ready-to-show', () => { if (!updateMode.hideWindow) mainWindow.show(); restoreWindowedBounds(); });
+  mainWindow.once('ready-to-show', () => {
+    if (!updateMode.hideWindow) mainWindow.show();
+    restoreWindowedBounds();
+    if (openedAtLogin && state.autoStart !== false && !updateMode.fixtureUrl) {
+      setTimeout(() => {
+        if (!mainWindow || mainWindow.isDestroyed() || securityLocked || isPresentationFullscreen()) return;
+        preparePresentation();
+        Promise.resolve(applyPresentationWindow()).then(() => {
+          if (!mainWindow || mainWindow.isDestroyed()) return;
+          mainWindow.show();
+          if (!desktopWindowHosted) mainWindow.focus();
+          notify();
+        }).catch(error => console.error('Unable to restore presentation at login:', error.message));
+      }, 220);
+    }
+  });
   mainWindow.on('close', event => {
     if (securityLocked && !quitting) { event.preventDefault(); return; }
     flushState();
@@ -770,6 +834,9 @@ else {
   app.whenReady().then(() => {
     readState();
     applyAutoStart(state.autoStart !== false);
+    try {
+      openedAtLogin = process.argv.includes('--dayan-login-start') || (process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin === true);
+    } catch (error) { console.error('Unable to inspect login launch state:', error.message); }
     if (process.platform === 'win32') {
       try { desktopHost = createDesktopHost(app.getPath('userData')); }
       catch (error) { console.error('Desktop host unavailable:', error.message); }
@@ -780,7 +847,7 @@ else {
         });
       } catch (error) { console.error('Keyboard guard unavailable:', error.message); }
     }
-    setupIPC(); createWindow();
+    setupIPC(); createWindow(); createTray();
     if (desktopHost) wallpaperControls = createWallpaperControls({
       host: desktopHost,
       enabled: () => Boolean(mainWindow && !mainWindow.isDestroyed() && desktopWindowHosted && !securityLocked && presentationRequested && !mainWindow.isMinimized()),
@@ -807,5 +874,11 @@ else {
     app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
   });
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-  app.on('before-quit', () => { quitting = true; keyboardGuard?.stop(); flushState(); });
+  app.on('before-quit', () => {
+    quitting = true;
+    tray?.destroy();
+    tray = null;
+    keyboardGuard?.stop();
+    flushState();
+  });
 }

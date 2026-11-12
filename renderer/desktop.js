@@ -291,8 +291,18 @@
   };
   bridge.onWindowState(syncWindow);
   bridge.onDesktopCommand(action => {
-    if (action === 'background') document.querySelector('[data-variant]:not([hidden]) .background-toggle')?.click();
-    else if (['style-toggle', 'settings-toggle', 'lock'].includes(action)) document.getElementById(action)?.click();
+    if (action === 'background') {
+      closeMenu();
+      if (!settingsModal.hidden) closeSettings();
+      const section = document.querySelector('[data-variant]:not([hidden])');
+      if (section?.querySelector('.background-picker')?.hidden) section.querySelector('.background-toggle')?.click();
+    } else if (action === 'style-toggle') {
+      if (!settingsModal.hidden) closeSettings();
+      if (menu.hidden) styleToggle.click();
+    } else if (action === 'settings-toggle') {
+      closeMenu();
+      if (settingsModal.hidden) settingsToggle.click();
+    } else if (action === 'lock') lockButton.click();
   });
 
   styleToggle.addEventListener('click', () => { if (security.locked) return; menu.hidden = !menu.hidden; styleToggle.setAttribute('aria-expanded', String(!menu.hidden)); });

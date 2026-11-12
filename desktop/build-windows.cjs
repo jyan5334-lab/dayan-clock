@@ -3,7 +3,7 @@ const path = require('node:path');
 const { build, Platform, Arch } = require('electron-builder');
 require('./build-update-host.cjs').buildUpdateHost();
 const projectDir = path.resolve(__dirname, '..');
-const outputDir = path.join(projectDir, 'release');
+const outputDir = path.resolve(process.env.DAYAN_RELEASE_DIR || path.join(projectDir, 'release'));
 
 if (process.platform === 'win32') {
   const { WineVmManager } = require('app-builder-lib/out/vm/WineVm');
@@ -17,7 +17,7 @@ if (process.platform === 'win32') {
     return originalExec.call(this, file, args, options, ...rest);
   };
 }
-build({ projectDir, targets: Platform.WINDOWS.createTarget(['nsis'], Arch.x64) })
+build({ projectDir, config: { directories: { output: outputDir } }, targets: Platform.WINDOWS.createTarget(['nsis'], Arch.x64) })
   .then(files => {
     const installer = files.find(file => file.endsWith('.exe'));
     if (!installer || fs.statSync(installer).size < 50 * 1024 * 1024) throw new Error('Installer is incomplete');

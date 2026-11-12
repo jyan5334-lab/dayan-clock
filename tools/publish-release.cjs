@@ -7,7 +7,8 @@ const root = path.resolve(__dirname, '..');
 const base = '/repos/jyan5334-lab/dayan-clock';
 const version = require(path.join(root, 'package.json')).version;
 const tag = `v${version}`;
-const statePath = path.join(root, 'release/publication-state.json');
+const releaseDir = path.resolve(process.env.DAYAN_RELEASE_DIR || path.join(root, 'release'));
+const statePath = path.join(releaseDir, 'publication-state.json');
 const assets = [`DAYANClock-Setup-${version}-x64.exe`, `DAYANClock-Source-${version}.zip`, `SHA256SUMS-${version}.txt`, 'update.json'];
 function git(...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true });
@@ -25,7 +26,7 @@ async function api(endpoint, method = 'GET', body, allow404 = false) {
   assert.ok(response.ok, `GitHub ${method} ${endpoint}: ${response.status} ${data?.message || ''}`);
   return data;
 }
-function digest(name) { return 'sha256:' + crypto.createHash('sha256').update(fs.readFileSync(path.join(root, 'release', name))).digest('hex'); }
+function digest(name) { return 'sha256:' + crypto.createHash('sha256').update(fs.readFileSync(path.join(releaseDir, name))).digest('hex'); }
 async function main() {
   const command = process.argv[2];
   const repo = await api(base);
@@ -67,7 +68,7 @@ async function main() {
     if (!release) release = await api(`${base}/releases`, 'POST', { tag_name: tag, target_commitish: state.remoteCommit, name: `DAYAN桌面 ${version}`, body: fs.readFileSync(path.join(root, 'docs/releases', tag + '.md'), 'utf8'), draft: true, prerelease: false });
     assert.equal(release.draft, true, 'Upload only to a draft release');
     for (const name of assets) {
-      const file = path.join(root, 'release', name);
+      const file = path.join(releaseDir, name);
       const size = fs.statSync(file).size;
       const existing = release.assets.find(item => item.name === name);
       if (existing) { assert.equal(existing.digest, digest(name)); continue; }

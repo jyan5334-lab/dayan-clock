@@ -1,0 +1,95 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const assert = require('node:assert/strict');
+const { _electron } = require(process.env.DAYAN_PLAYWRIGHT_MODULE || 'playwright');
+const root = path.resolve(__dirname, '..');
+const testRoot = process.env.DAYAN_TEST_ROOT || 'D:/Codex/Temp';
+fs.mkdirSync(testRoot, { recursive: true });
+const data = fs.mkdtempSync(path.join(testRoot, 'dayan-tray-'));
+const packaged = process.argv.includes('--packaged');
+fs.writeFileSync(path.join(data, 'preferences.json'), JSON.stringify({ settingsGuideVersion: 1, style: 1, autoStart: true, windowLayers: { unlocked: 'top', locked: 'top', displayScope: 'all' }, bounds: { x: 100, y: 100, width: 800, height: 568 } }));
+const env = { ...process.env, DAYAN_TEST: '1', DAYAN_TEST_DATA: data };
+delete env.ELECTRON_RUN_AS_NODE;
+let desktop;
+const errors = [];
+async function launch(login) {
+  desktop = await _electron.launch({ executablePath: packaged ? path.join(process.env.DAYAN_RELEASE_DIR || path.join(root, 'release'), 'win-unpacked/DAYANClock.exe') : require(path.join(root, 'node_modules/electron')), args: [...(packaged ? [] : [root]), ...(login ? ['--dayan-login-start'] : [])], env });
+  const page = await desktop.firstWindow();
+  page.on('pageerror', error => errors.push(error.message));
+  await page.waitForSelector('html[data-ready=true]');
+  return page;
+}
+async function action(label) {
+  await desktop.evaluate((_, label) => {
+    const item = globalThis.__dayanTrayMenu.items.find(item => item.label === label);
+    if (!item || !item.enabled) throw Error('Unavailable tray action: ' + label);
+    item.click();
+  }, label);
+}
+async function quit() {
+  await desktop.evaluate(({ app }) => app.quit());
+  await desktop.close();
+  desktop = null;
+}
+(async () => {
+  let page = await launch(true);
+  await page.waitForSelector('html[data-fullscreen=true]');
+  const menu = await desktop.evaluate(() => globalThis.__dayanTrayMenu.items.map(item => item.label));
+  assert.deepEqual(menu, ['设置', '切换样式', '切换背景', '最小化（回到窗口）', '', '退出']);
+  await action('最小化（回到窗口）');
+  await page.waitForSelector('html[data-fullscreen=false]');
+  await page.waitForTimeout(200);
+  const normal = await desktop.evaluate(({ BrowserWindow }) => ({ bounds: BrowserWindow.getAllWindows()[0].getBounds() }));
+  assert.ok(normal.bounds.width >= 790 && normal.bounds.width <= 810, JSON.stringify(normal));
+  await action('设置');
+  await page.waitForSelector('#settings-modal:not([hidden])');
+  await action('设置');
+  await page.waitForTimeout(180);
+  assert.equal(await page.locator('#settings-modal').evaluate(el => el.hidden), false);
+  await action('切换样式');
+  await page.waitForSelector('#style-menu:not([hidden])');
+  await page.locator('[data-style="4"]').click();
+  await action('切换背景');
+  await page.waitForSelector('[data-variant]:not([hidden]) .background-picker:not([hidden])');
+  const background = page.locator('[data-variant]:not([hidden]) [data-background="lunar"]');
+  await background.click();
+  await page.waitForTimeout(350);
+  const saved = await page.evaluate(() => window.dayan.load());
+  assert.equal(saved.style, 4);
+  assert.ok(saved.widget.privateContent.simpleTimers.some(item => item.background === 'lunar'));
+  await action('设置');
+  await page.waitForSelector('#settings-modal:not([hidden])');
+  await page.locator('[data-settings-tab="layers"]').click();
+  await page.locator('[data-window-layer="unlocked"][value="bottom"]').check();
+  await page.waitForTimeout(200);
+  await quit();
+  page = await launch(true);
+  await page.waitForSelector('html[data-fullscreen=true]');
+  await page.waitForSelector('html[data-desktop-hosted=true]');
+  assert.equal(await page.locator('[data-variant]:not([hidden])').getAttribute('data-variant'), '赛博终端');
+  assert.equal(await page.locator('[data-variant]:not([hidden]) [data-background="lunar"]').getAttribute('aria-pressed'), 'true');
+  await action('最小化（回到窗口）');
+  await page.waitForSelector('html[data-fullscreen=false]');
+  assert.equal((await page.evaluate(() => window.dayan.securitySetPassword({ current: '', next: '123456' }))).ok, true);
+  await page.evaluate(() => window.dayan.securityLock());
+  await page.waitForSelector('html.locked');
+  assert.equal(await desktop.evaluate(() => globalThis.__dayanTrayMenu.items.filter(item => item.type !== 'separator').every(item => !item.enabled)), true);
+  assert.equal(await page.evaluate(() => window.dayan.securityVerify('123456')), true);
+  assert.equal(await desktop.evaluate(() => globalThis.__dayanTrayMenu.items.filter(item => item.type !== 'separator').every(item => item.enabled)), true);
+  await action('设置');
+  await page.waitForSelector('#settings-modal:not([hidden])');
+  await page.locator('[data-settings-tab="autostart"]').click();
+  await page.locator('#auto-start').uncheck();
+  await page.waitForTimeout(200);
+  await quit();
+  page = await launch(true);
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator('html').getAttribute('data-fullscreen'), 'false');
+  const exited = new Promise(resolve => desktop.process().once('exit', resolve));
+  await desktop.evaluate(() => { setTimeout(() => globalThis.__dayanTrayMenu.items.find(item => item.label === '退出').click(), 30); });
+  await exited;
+  await desktop.close();
+  desktop = null;
+  assert.deepEqual(errors, []);
+  console.log(JSON.stringify({ result: 'passed', packaged, menu, normal, loginRestore: true, styleBackgroundPersistence: true, lockedMenuDisabled: true, autoStartDisabledHonored: true, errors, data }, null, 2));
+})().catch(error => { console.error(error.stack); process.exitCode = 1; }).finally(async () => { if (desktop) await desktop.close(); });

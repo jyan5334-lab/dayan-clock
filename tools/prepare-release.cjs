@@ -6,7 +6,7 @@ const root = path.resolve(__dirname, '..');
 const version = require('../package.json').version;
 const installer = `DAYANClock-Setup-${version}-x64.exe`;
 const source = `DAYANClock-Source-${version}.zip`;
-const folder = path.join(root, 'release');
+const folder = path.resolve(process.env.DAYAN_RELEASE_DIR || path.join(root, 'release'));
 const sha = name => crypto.createHash('sha256').update(fs.readFileSync(path.join(folder, name))).digest('hex');
 const result = spawnSync('git', ['archive', '--format=zip', `--output=${path.join(folder, source)}`, 'HEAD'], { cwd: root, windowsHide: true, encoding: 'utf8' });
 if (result.status !== 0) throw Error(result.stderr);
