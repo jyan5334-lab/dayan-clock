@@ -271,6 +271,9 @@
   });
 
   const syncWindow = state => {
+    const presentationLayout = state.fullscreen ? state.presentationLayout : null;
+    window.dayanPresentationLayout = presentationLayout;
+    document.getElementById('simple-timers').dispatchEvent(new CustomEvent('dayan:presentation-layout', { detail: presentationLayout }));
     document.getElementById('pin').setAttribute('aria-pressed', String(state.pinned));
     const full = document.getElementById('fullscreen');
     full.setAttribute('aria-pressed', String(state.fullscreen));

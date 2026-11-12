@@ -457,6 +457,18 @@ function presentationArea() {
   return { id: 'all-displays', bounds: { x: left, y: top, width: right - left, height: bottom - top } };
 }
 
+function presentationLayout() {
+  const layers = normalizeWindowLayers(state.windowLayers);
+  const area = presentationArea();
+  const contentDisplay = layers.displayScope === 'all' ? screen.getPrimaryDisplay() : presentationDisplay();
+  return {
+    scope: layers.displayScope,
+    area: { ...area.bounds },
+    content: { ...contentDisplay.bounds },
+    primaryDisplayId: screen.getPrimaryDisplay().id
+  };
+}
+
 function setDesktopWindowMode(hosted, display) {
   if (!desktopHost || !mainWindow || mainWindow.isDestroyed()) return Promise.resolve();
   desktopHostDesired = hosted;
@@ -505,9 +517,13 @@ function applyPresentationWindow(refreshBounds = false) {
       if (!mainWindow || mainWindow.isDestroyed() || !isPresentationFullscreen()) return;
       if (desktopWindowHosted) return;
       mainWindow.setIgnoreMouseEvents(false);
+      const virtualDesktop = display.id === 'all-displays';
+      // Electron kiosk/fullscreen is monitor-scoped on Windows. For an all-display
+      // presentation, keep the frameless window borderless and size it to the
+      // virtual desktop so the lock surface also covers secondary monitors.
+      mainWindow.setKiosk(securityLocked && !virtualDesktop);
+      mainWindow.setFullScreen(!virtualDesktop);
       mainWindow.setBounds(display.bounds, false);
-      mainWindow.setKiosk(securityLocked);
-      mainWindow.setFullScreen(true);
       mainWindow.setAlwaysOnTop(fullscreenLayer() !== 'bottom', securityLocked ? 'screen-saver' : 'floating');
       if (securityLocked) mainWindow.focus();
     };
@@ -533,11 +549,11 @@ function restorePinnedState() {
 }
 function notify() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send('dayan:window-state', { pinned: state.pinned === true, fullscreen: isPresentationFullscreen(), desktopHosted: desktopWindowHosted, windowLayers: normalizeWindowLayers(state.windowLayers), ...securitySnapshot() });
+  mainWindow.webContents.send('dayan:window-state', { pinned: state.pinned === true, fullscreen: isPresentationFullscreen(), desktopHosted: desktopWindowHosted, windowLayers: normalizeWindowLayers(state.windowLayers), presentationLayout: presentationLayout(), ...securitySnapshot() });
 }
 
 function setupIPC() {
-  ipcMain.handle('dayan:load', event => trusted(event) ? { widget: state.widget, style: state.style, displaySettings: state.displaySettings, windowLayers: normalizeWindowLayers(state.windowLayers), autoStart: state.autoStart !== false, appVersion: app.getVersion(), showSettingsOnStartup: state.settingsGuideVersion !== 1, pinned: state.pinned === true, fullscreen: isPresentationFullscreen(), ...securitySnapshot() } : null);
+  ipcMain.handle('dayan:load', event => trusted(event) ? { widget: state.widget, style: state.style, displaySettings: state.displaySettings, windowLayers: normalizeWindowLayers(state.windowLayers), presentationLayout: presentationLayout(), autoStart: state.autoStart !== false, appVersion: app.getVersion(), showSettingsOnStartup: state.settingsGuideVersion !== 1, pinned: state.pinned === true, fullscreen: isPresentationFullscreen(), ...securitySnapshot() } : null);
   ipcMain.handle('dayan:security-policy-status', event => trusted(event) ? windowsLockdownStatus() : { supported: false, enabled: false, missing: [], error: '请求无效' });
   ipcMain.handle('dayan:security-policy-enable', event => trusted(event) && !securityLocked ? enableWindowsLockdown() : { ok: false, error: '请先解锁时钟' });
   ipcMain.handle('dayan:security-policy-restore', event => trusted(event) && !securityLocked ? enableWindowsLockdown('restore') : { ok: false, error: '请先解锁时钟' });
@@ -779,10 +795,11 @@ else {
       }
     });
     if (!process.argv.includes('--dayan-update-recovery')) setTimeout(() => { checkForUpdates(); }, updateMode.fixtureUrl ? 250 : 2500);
-    const updateDisplayBounds = () => {
+    const updateDisplayBounds = async () => {
       if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized()) return;
-      if (isPresentationFullscreen()) applyPresentationWindow(true);
-      else queueWindowedRestore();
+      if (isPresentationFullscreen()) await applyPresentationWindow(true);
+      else await queueWindowedRestore();
+      notify();
     };
     screen.on('display-metrics-changed', updateDisplayBounds);
     screen.on('display-added', updateDisplayBounds);

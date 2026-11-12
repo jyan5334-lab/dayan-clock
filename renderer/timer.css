@@ -1,6 +1,11 @@
 #simple-timers { width:100%; }
 #simple-timers * { box-sizing:border-box; letter-spacing:0; }
 #simple-timers .timer { --surface:#111410;--text:#f4f7ed;--muted:#9ca893;--line:#343b2d;--accent:#d5fc73;--on:#172308; background:var(--surface); color:var(--text); width:100%; min-height:440px; padding:22px 26px; border-radius:8px; font:14px/1.5 "Segoe UI","Microsoft YaHei",sans-serif; }
+#simple-timers.presentation-all .timer > header,
+#simple-timers.presentation-all .timer > .display,
+#simple-timers.presentation-all .timer > .settings,
+#simple-timers.presentation-all .timer > .actions,
+#simple-timers.presentation-all .timer > .error { width:var(--dayan-primary-width); margin-left:calc(var(--dayan-primary-left) - 26px); position:relative; top:var(--dayan-primary-top); }
 #simple-timers [hidden] { display:none!important; }
 #simple-timers header { display:flex; align-items:center; justify-content:space-between; gap:16px; padding-right:64px; }
 #simple-timers .brand { display:flex; align-items:center; gap:8px; white-space:nowrap; font-weight:600; }

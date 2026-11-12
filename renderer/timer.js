@@ -18,6 +18,20 @@
   const pad=n=>String(n).padStart(2,'0');
   const icon=name=>`<i data-lucide="${name}" aria-hidden="true"></i>`;
   const refresh=()=>{if(globalThis.lucide)globalThis.lucide.createIcons({attrs:{width:16,height:16}});};
+  const syncPresentationLayout=layout=>{
+    const all=layout?.scope==='all'&&layout.area&&layout.content;
+    root.classList.toggle('presentation-all',Boolean(all));
+    if(!all){
+      for(const name of ['--dayan-primary-left','--dayan-primary-top','--dayan-primary-width','--dayan-primary-height'])root.style.removeProperty(name);
+      return;
+    }
+    root.style.setProperty('--dayan-primary-left',`${layout.content.x-layout.area.x}px`);
+    root.style.setProperty('--dayan-primary-top',`${layout.content.y-layout.area.y}px`);
+    root.style.setProperty('--dayan-primary-width',`${layout.content.width}px`);
+    root.style.setProperty('--dayan-primary-height',`${layout.content.height}px`);
+  };
+  syncPresentationLayout(window.dayanPresentationLayout);
+  root.addEventListener('dayan:presentation-layout',event=>syncPresentationLayout(event.detail));
   const current=s=>s.elapsed+(s.running?performance.now()-s.anchor:0);
   function format(ms) {
     const n=Math.max(0,Math.floor(ms/1000));
