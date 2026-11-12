@@ -23,7 +23,7 @@ const PASSWORD_ITERATIONS = 210000;
 const UPDATE_REPOSITORY_API = 'https://api.github.com/repos/jyan5334-lab/dayan-clock/releases/latest';
 const UPDATE_PUBLIC_MANIFEST = 'https://github.com/jyan5334-lab/dayan-clock/releases/latest/download/update.json';
 const DEFAULT_DISPLAY_SETTINGS = Object.freeze({ showAlmanac: true, modes: Object.freeze({ clock: false, watch: true, down: true, up: true }) });
-let mainWindow, tray, trayMenu, state = {}, resizeSession, saveTimer, securityLocked = false, quitting = false, openedAtLogin = false, trayActionBusy = false, desktopReconcileTimer;
+let mainWindow, tray, trayMenu, state = {}, resizeSession, saveTimer, securityLocked = false, quitting = false, openedAtLogin = false, trayActionBusy = false, desktopReconcileTimer, trayReconcileInterval;
 let windowedBounds, presentationRequested = false, restoringBounds = false, restoreBoundsTimer, desktopWindowHosted = false;
 let presentationDisplayId;
 let desktopHost, wallpaperControls, desktopHostDesired = false, desktopHostQueue = Promise.resolve(), desktopHostRequest = 0;
@@ -477,6 +477,18 @@ function reconcileDesktopPresentation() {
   }, 120);
 }
 
+function startTrayPresentationReconcile() {
+  clearInterval(trayReconcileInterval);
+  reconcileDesktopPresentation();
+  trayReconcileInterval = setInterval(() => reconcileDesktopPresentation(), 260);
+}
+
+function stopTrayPresentationReconcile() {
+  clearInterval(trayReconcileInterval);
+  trayReconcileInterval = null;
+  reconcileDesktopPresentation();
+}
+
 function refreshTrayMenu() {
   if (!tray || tray.isDestroyed()) return;
   const enabled = !securityLocked && Boolean(mainWindow && !mainWindow.isDestroyed());
@@ -492,7 +504,8 @@ function refreshTrayMenu() {
     { type: 'separator' },
     { label: '退出', enabled, click: () => runTrayAction('exit').catch(error => console.error('Tray exit failed:', error.message)) }
   ]);
-  trayMenu.on('menu-will-close', () => { if (!trayActionBusy) reconcileDesktopPresentation(); });
+  trayMenu.on('menu-will-show', () => { if (!trayActionBusy) startTrayPresentationReconcile(); });
+  trayMenu.on('menu-will-close', () => { if (!trayActionBusy) stopTrayPresentationReconcile(); });
   tray.setContextMenu(trayMenu);
   if (process.env.DAYAN_TEST === '1') globalThis.__dayanTrayMenu = trayMenu;
 }
@@ -901,6 +914,7 @@ else {
   app.on('before-quit', () => {
     quitting = true;
     clearTimeout(desktopReconcileTimer);
+    clearInterval(trayReconcileInterval);
     tray?.destroy();
     tray = null;
     trayMenu = null;

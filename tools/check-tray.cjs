@@ -71,12 +71,19 @@ async function quit() {
   page = await launch(true);
   await page.waitForSelector('html[data-fullscreen=true]');
   await page.waitForSelector('html[data-desktop-hosted=true]');
+  const primaryContent = await page.locator('#simple-timers > section:not([hidden]) .timer > .display').boundingBox();
+  const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  assert.ok(primaryContent && primaryContent.y <= viewport.height * 0.2, JSON.stringify({ primaryContent, viewport }));
   const hostedHwnd = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getNativeWindowHandle().readBigUInt64LE().toString());
   const hostedBeforeTray = native(['inspect']).windows.find(item => item.handle === hostedHwnd);
   assert.ok(hostedBeforeTray);
   for (let index = 0; index < 3; index++) {
     await desktop.evaluate(({ BrowserWindow }) => { globalThis.__originalTrayMenu = globalThis.__dayanTrayMenu; globalThis.__dayanTrayMenu.popup({ window: BrowserWindow.getAllWindows()[0] }); });
     await page.waitForTimeout(200);
+    const hostedDuringTray = native(['inspect']).windows.find(item => item.handle === hostedHwnd);
+    assert.ok(hostedDuringTray, 'Wallpaper must remain attached while tray menu is open');
+    assert.deepEqual(hostedDuringTray.client, hostedBeforeTray.client, 'Tray menu must preserve desktop bounds while open');
+    assert.equal(hostedDuringTray.parent, hostedBeforeTray.parent);
     await desktop.evaluate(() => globalThis.__dayanTrayMenu.closePopup());
     await page.waitForTimeout(700);
     const hostedAfterTray = native(['inspect']).windows.find(item => item.handle === hostedHwnd);
@@ -111,5 +118,5 @@ async function quit() {
   await desktop.close();
   desktop = null;
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ result: 'passed', packaged, menu, normal, loginRestore: true, styleBackgroundPersistence: true, lockedMenuDisabled: true, autoStartDisabledHonored: true, errors, data }, null, 2));
+  console.log(JSON.stringify({ result: 'passed', packaged, menu, normal, primaryContent, viewport, loginRestore: true, styleBackgroundPersistence: true, lockedMenuDisabled: true, autoStartDisabledHonored: true, errors, data }, null, 2));
 })().catch(error => { console.error(error.stack); process.exitCode = 1; }).finally(async () => { if (desktop) await desktop.close(); });

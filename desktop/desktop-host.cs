@@ -108,7 +108,8 @@ internal static class DesktopHost {
           if (parent == IntPtr.Zero || parent.ToInt64().ToString() != args[7]) throw new Exception("Desktop parent changed; reopen desktop mode.");
           var origin = new Point { X = int.Parse(args[3]), Y = int.Parse(args[4]) };
           MapWindowPoints(IntPtr.Zero, parent, ref origin, 1);
-          if (!SetWindowPos(hwnd, IntPtr.Zero, origin.X, origin.Y, int.Parse(args[5]), int.Parse(args[6]), 0x4 | 0x10 | 0x20 | 0x40)) throw new Exception("Desktop resizing failed.");
+          var after = args.Length > 8 ? new IntPtr(long.Parse(args[8])) : IntPtr.Zero;
+          if (!SetWindowPos(hwnd, after, origin.X, origin.Y, int.Parse(args[5]), int.Parse(args[6]), 0x10 | 0x20 | 0x40)) throw new Exception("Desktop resizing failed.");
           output = new { ok = true, window = Describe(hwnd) };
         } else if (args[0] == "detach") {
           SetStyle(hwnd, -16, new IntPtr(long.Parse(args[3])));
