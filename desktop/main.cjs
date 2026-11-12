@@ -23,7 +23,7 @@ const PASSWORD_ITERATIONS = 210000;
 const UPDATE_REPOSITORY_API = 'https://api.github.com/repos/jyan5334-lab/dayan-clock/releases/latest';
 const UPDATE_PUBLIC_MANIFEST = 'https://github.com/jyan5334-lab/dayan-clock/releases/latest/download/update.json';
 const DEFAULT_DISPLAY_SETTINGS = Object.freeze({ showAlmanac: true, modes: Object.freeze({ clock: false, watch: true, down: true, up: true }) });
-let mainWindow, tray, state = {}, resizeSession, saveTimer, securityLocked = false, quitting = false, openedAtLogin = false;
+let mainWindow, tray, trayMenu, state = {}, resizeSession, saveTimer, securityLocked = false, quitting = false, openedAtLogin = false, trayActionBusy = false, desktopReconcileTimer;
 let windowedBounds, presentationRequested = false, restoringBounds = false, restoreBoundsTimer, desktopWindowHosted = false;
 let presentationDisplayId;
 let desktopHost, wallpaperControls, desktopHostDesired = false, desktopHostQueue = Promise.resolve(), desktopHostRequest = 0;
@@ -172,7 +172,6 @@ async function checkForUpdates({ notifyRenderer = true } = {}) {
     for (const candidate of candidates) remote = mergeUpdateSources(remote, candidate);
     if (!remote || !isNewerVersion(remote.version, app.getVersion())) { updateInfo = null; return { available: false, currentVersion: app.getVersion(), checkedAt: new Date().toISOString() }; }
     updateInfo = { ...remote, currentVersion: app.getVersion(), testOnly: Boolean(updateMode.fixtureUrl) };
-    if (notifyRenderer && !securityLocked && (desktopHostDesired || desktopWindowHosted)) await runTrayAction('update');
     if (notifyRenderer && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dayan:update-available', updateInfo);
     return { available: true, ...updateInfo };
   })().catch(error => {
@@ -440,28 +439,52 @@ async function leavePresentation() {
 }
 
 async function runTrayAction(action) {
-  if (!mainWindow || mainWindow.isDestroyed() || securityLocked) return false;
+  if (!mainWindow || mainWindow.isDestroyed() || securityLocked || trayActionBusy) return false;
+  clearTimeout(desktopReconcileTimer);
   if (action === 'exit') {
     quitting = true;
     app.quit();
     return true;
   }
-  if (isPresentationFullscreen()) await leavePresentation();
-  await new Promise(resolve => setTimeout(resolve, 140));
-  if (!mainWindow || mainWindow.isDestroyed()) return false;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  mainWindow.focus();
-  if (action === 'settings') mainWindow.webContents.send('dayan:desktop-command', 'settings-toggle');
-  if (action === 'style') mainWindow.webContents.send('dayan:desktop-command', 'style-toggle');
-  if (action === 'background') mainWindow.webContents.send('dayan:desktop-command', 'background');
-  return true;
+  trayActionBusy = true;
+  try {
+    if (isPresentationFullscreen()) await leavePresentation();
+    await new Promise(resolve => setTimeout(resolve, 140));
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    if (action === 'settings') mainWindow.webContents.send('dayan:desktop-command', 'settings-toggle');
+    if (action === 'style') mainWindow.webContents.send('dayan:desktop-command', 'style-toggle');
+    if (action === 'background') mainWindow.webContents.send('dayan:desktop-command', 'background');
+    return true;
+  } finally {
+    trayActionBusy = false;
+  }
+}
+
+function reconcileDesktopPresentation() {
+  clearTimeout(desktopReconcileTimer);
+  desktopReconcileTimer = setTimeout(async () => {
+    if (trayActionBusy || !mainWindow || mainWindow.isDestroyed() || securityLocked || !isPresentationFullscreen() || fullscreenLayer() !== 'bottom' || !desktopHost) return;
+    try {
+      await setDesktopWindowMode(true, presentationArea());
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      notify();
+    } catch (error) {
+      console.error('Unable to reconcile desktop presentation after tray menu:', error.message);
+    }
+  }, 120);
 }
 
 function refreshTrayMenu() {
   if (!tray || tray.isDestroyed()) return;
   const enabled = !securityLocked && Boolean(mainWindow && !mainWindow.isDestroyed());
-  const contextMenu = Menu.buildFromTemplate([
+  if (trayMenu) {
+    for (const item of trayMenu.items) if (item.type !== 'separator') item.enabled = enabled;
+    return;
+  }
+  trayMenu = Menu.buildFromTemplate([
     { label: '设置', enabled, click: () => runTrayAction('settings').catch(error => console.error('Tray settings failed:', error.message)) },
     { label: '切换样式', enabled, click: () => runTrayAction('style').catch(error => console.error('Tray style menu failed:', error.message)) },
     { label: '切换背景', enabled, click: () => runTrayAction('background').catch(error => console.error('Tray background menu failed:', error.message)) },
@@ -469,8 +492,9 @@ function refreshTrayMenu() {
     { type: 'separator' },
     { label: '退出', enabled, click: () => runTrayAction('exit').catch(error => console.error('Tray exit failed:', error.message)) }
   ]);
-  tray.setContextMenu(contextMenu);
-  if (process.env.DAYAN_TEST === '1') globalThis.__dayanTrayMenu = contextMenu;
+  trayMenu.on('menu-will-close', () => { if (!trayActionBusy) reconcileDesktopPresentation(); });
+  tray.setContextMenu(trayMenu);
+  if (process.env.DAYAN_TEST === '1') globalThis.__dayanTrayMenu = trayMenu;
 }
 
 function createTray() {
@@ -876,8 +900,10 @@ else {
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
   app.on('before-quit', () => {
     quitting = true;
+    clearTimeout(desktopReconcileTimer);
     tray?.destroy();
     tray = null;
+    trayMenu = null;
     keyboardGuard?.stop();
     flushState();
   });

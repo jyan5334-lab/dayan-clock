@@ -12,6 +12,11 @@ const env = { ...process.env, DAYAN_TEST: '1', DAYAN_TEST_DATA: data };
 delete env.ELECTRON_RUN_AS_NODE;
 let desktop;
 const errors = [];
+const native = args => {
+  const result = require('node:child_process').spawnSync(path.join(root, 'assets/DAYANDesktopHost.exe'), args.map(String), { encoding: 'utf8', windowsHide: true });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return JSON.parse(result.stdout);
+};
 async function launch(login) {
   desktop = await _electron.launch({ executablePath: packaged ? path.join(process.env.DAYAN_RELEASE_DIR || path.join(root, 'release'), 'win-unpacked/DAYANClock.exe') : require(path.join(root, 'node_modules/electron')), args: [...(packaged ? [] : [root]), ...(login ? ['--dayan-login-start'] : [])], env });
   const page = await desktop.firstWindow();
@@ -65,6 +70,21 @@ async function quit() {
   await quit();
   page = await launch(true);
   await page.waitForSelector('html[data-fullscreen=true]');
+  await page.waitForSelector('html[data-desktop-hosted=true]');
+  const hostedHwnd = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getNativeWindowHandle().readBigUInt64LE().toString());
+  const hostedBeforeTray = native(['inspect']).windows.find(item => item.handle === hostedHwnd);
+  assert.ok(hostedBeforeTray);
+  for (let index = 0; index < 3; index++) {
+    await desktop.evaluate(({ BrowserWindow }) => { globalThis.__originalTrayMenu = globalThis.__dayanTrayMenu; globalThis.__dayanTrayMenu.popup({ window: BrowserWindow.getAllWindows()[0] }); });
+    await page.waitForTimeout(200);
+    await desktop.evaluate(() => globalThis.__dayanTrayMenu.closePopup());
+    await page.waitForTimeout(700);
+    const hostedAfterTray = native(['inspect']).windows.find(item => item.handle === hostedHwnd);
+    assert.ok(hostedAfterTray, 'Wallpaper must remain attached after dismissing tray menu');
+    assert.deepEqual(hostedAfterTray.client, hostedBeforeTray.client, 'Tray dismissal must preserve desktop bounds');
+    assert.equal(hostedAfterTray.parent, hostedBeforeTray.parent);
+    assert.equal(await desktop.evaluate(() => globalThis.__originalTrayMenu === globalThis.__dayanTrayMenu), true, 'Window notifications must not replace the active menu');
+  }
   await page.waitForSelector('html[data-desktop-hosted=true]');
   assert.equal(await page.locator('[data-variant]:not([hidden])').getAttribute('data-variant'), '赛博终端');
   assert.equal(await page.locator('[data-variant]:not([hidden]) [data-background="lunar"]').getAttribute('aria-pressed'), 'true');
