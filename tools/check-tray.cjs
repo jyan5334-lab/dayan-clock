@@ -73,7 +73,9 @@ async function quit() {
   await page.waitForSelector('html[data-desktop-hosted=true]');
   const primaryContent = await page.locator('#simple-timers > section:not([hidden]) .timer > .display').boundingBox();
   const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
-  assert.ok(primaryContent && primaryContent.y <= viewport.height * 0.2, JSON.stringify({ primaryContent, viewport }));
+  const { area, content } = (await page.evaluate(() => window.dayan.load())).presentationLayout;
+  const contentTop = content.y - area.y;
+  assert.ok(primaryContent && primaryContent.y >= contentTop && primaryContent.y <= contentTop + content.height * 0.2, JSON.stringify({ primaryContent, viewport, contentTop, content }));
   const hostedHwnd = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getNativeWindowHandle().readBigUInt64LE().toString());
   const hostedBeforeTray = native(['inspect']).windows.find(item => item.handle === hostedHwnd);
   assert.ok(hostedBeforeTray);

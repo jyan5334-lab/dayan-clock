@@ -13,6 +13,7 @@
   <script defer src="renderer/lunar.js"></script>
   <script defer src="renderer/almanac.js"></script>
   <script defer src="renderer/styles.js"></script>
+  <script defer src="renderer/update.js"></script>
   <script defer src="renderer/desktop.js"></script>
 </head>
 <body>
@@ -90,7 +91,11 @@
         </div>
         <div class="update-download-status"><p id="update-progress-text">准备下载…</p><p id="update-speed"></p></div>
       </div>
-      <button id="update-confirm" class="update-confirm" type="button"><i data-lucide="download"></i><span>确定更新</span></button>
+      <div class="update-actions">
+        <button id="update-confirm" class="update-confirm" type="button"><i data-lucide="download"></i><span>现在更新</span></button>
+        <button id="update-remind-tomorrow" class="update-secondary" type="button"><i data-lucide="bell-off"></i><span>今日不再提醒</span></button>
+        <button id="update-cancel" class="update-secondary" type="button"><i data-lucide="x"></i><span>取消</span></button>
+      </div>
       <p id="update-error" class="security-error" role="alert" hidden></p>
     </div>
   </div>

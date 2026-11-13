@@ -78,7 +78,7 @@ npm run dist:mac
 
 ## 自动更新
 
-启动时由 Electron 主进程检查 GitHub Release API 和 Release 的 `update.json`；设置 `DAYAN_UPDATE_MANIFEST_URL` 时使用指定清单。Release 数据需包含 `tag_name`、匹配版本的 `DAYANClock-Setup-<版本>-x64.exe` 资产及 SHA-256 摘要。自定义清单格式为 `{"version":"1.6.8","downloadUrl":"https://.../DAYANClock-Setup-1.6.8-x64.exe","size":123456789,"mirrorUrls":["https://自有镜像/..."],"sha256":"64位十六进制摘要","notes":"更新说明"}`。没有有效摘要会拒绝下载。发现更高版本后，程序只显示“确定更新”，下载、校验并重启安装。
+启动时由 Electron 主进程在渲染界面就绪后检查 GitHub Release API 和 Release 的 `update.json`；设置 `DAYAN_UPDATE_MANIFEST_URL` 时使用指定清单。检查失败后依次间隔15秒、60秒和5分钟自动重试，恢复联网后也会重试。Release 数据需包含 `tag_name`、匹配版本的 `DAYANClock-Setup-<版本>-x64.exe` 资产及 SHA-256 摘要。自定义清单格式为 `{"version":"1.6.8","downloadUrl":"https://.../DAYANClock-Setup-1.6.8-x64.exe","size":123456789,"mirrorUrls":["https://自有镜像/..."],"sha256":"64位十六进制摘要","notes":"更新说明"}`。没有有效摘要会拒绝下载。发现更高版本后，独立更新窗口显示“现在更新”“今日不再提醒”和“取消”。今日暂停只影响自动提醒，按本机自然日保存；手动检查不受影响。确认后下载、校验并重启安装。
 
 当前仓库为 Public，普通安装包可以匿名访问 GitHub API 和 Release 资产。下载前探测直连、系统代理/PAC 及可信镜像，随后最多使用 10 个可信地址组成下载池，默认以 8 个并发工作连接请求 2 MB 分段；网络波动或限流时退回 4 路，遵守服务器的重试等待时间。不同分段会分配到健康地址，稍晚探测成功的通道也可加入；复用跳转后的地址以减少请求开销，线路失败时自动换地址，已完成分段继续保留。完整分段及各自摘要保存在用户数据目录的 `updates/downloads`，重试和程序重开后复检续传；最终安装包必须通过发布清单的 SHA-256 验证。GitHub Token 只发送给 API 域名，不转交 CDN 或镜像。
 

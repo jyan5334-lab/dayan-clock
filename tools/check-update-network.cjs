@@ -32,9 +32,18 @@ const server = http.createServer((req, res) => {
   origin = `http://127.0.0.1:${server.address().port}`;
   const env = { ...process.env, DAYAN_TEST: '1', DAYAN_TEST_DATA: path.join(testDir, 'data'), DAYAN_TEST_UPDATE_URL: `${origin}/manifest` };
   delete env.ELECTRON_RUN_AS_NODE;
-  desktop = await _electron.launch({ executablePath: packed ? path.join(root, 'release/win-unpacked/DAYANClock.exe') : require(path.join(root, 'node_modules/electron')), args: [...(packed ? [] : [root]), '--dayan-test-updates'], env });
+  desktop = await _electron.launch({ executablePath: packed ? path.join(process.env.DAYAN_RELEASE_DIR || path.join(root, 'release'), 'win-unpacked/DAYANClock.exe') : require(path.join(root, 'node_modules/electron')), args: [...(packed ? [] : [root]), '--dayan-test-updates'], env });
   desktop.process().stderr.on('data', chunk => fs.appendFileSync(path.join(testDir, 'app.log'), chunk));
-  const page = await desktop.firstWindow();
+  const mainPage = await desktop.firstWindow();
+  await mainPage.waitForSelector('html[data-ready=true]');
+  await mainPage.waitForFunction(async () => (await window.dayan.updateCheck()).available);
+  let page;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    page = desktop.windows().find(window => window.url().includes('updater=1'));
+    if (page) break;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  assert.ok(page, 'Independent update prompt must open');
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.waitForSelector('#update-modal:not([hidden])');
@@ -63,7 +72,7 @@ const server = http.createServer((req, res) => {
     let lastLog = 0;
     const downloaded = await downloadUpdate({ update, installerPath: path.join(args.testDir, 'checked-download.exe'), urls, fetch: networkFetch, transports: downloadTransports,
       onDiagnostic: record => fs.appendFileSync(path.join(args.testDir, 'network-trace.jsonl'), JSON.stringify(record) + '\n'),
-      onProgress: progress => { BrowserWindow.getAllWindows()[0].webContents.send('dayan:update-progress', progress); if (Date.now() - lastLog > 5000) { lastLog = Date.now(); fs.appendFileSync(path.join(args.testDir, 'network-trace.jsonl'), JSON.stringify({ phase: 'progress', at: new Date().toISOString(), bytes: progress.received, total: progress.total, transport: progress.transport }) + '\n'); } } });
+      onProgress: progress => { BrowserWindow.getAllWindows().find(window => window.webContents.getURL().includes('updater=1')).webContents.send('dayan:update-progress', progress); if (Date.now() - lastLog > 5000) { lastLog = Date.now(); fs.appendFileSync(path.join(args.testDir, 'network-trace.jsonl'), JSON.stringify({ phase: 'progress', at: new Date().toISOString(), bytes: progress.received, total: progress.total, transport: progress.transport }) + '\n'); } } });
     let systemTransportHash;
     if (!args.live) {
       const systemTransport = downloadTransports.find(item => item.name === 'system');
@@ -79,7 +88,7 @@ const server = http.createServer((req, res) => {
   await page.waitForFunction(() => document.getElementById('update-percent').textContent === '100.0%');
   assert.equal(await page.locator('#update-total').innerText(), `总大小 ${(result.total / 1024 / 1024).toFixed(1)} MB`);
   const sendProgress = async progress => {
-    await desktop.evaluate(({ BrowserWindow }, value) => BrowserWindow.getAllWindows()[0].webContents.send('dayan:update-progress', value), progress);
+    await desktop.evaluate(({ BrowserWindow }, value) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().includes('updater=1')).webContents.send('dayan:update-progress', value), progress);
     await page.waitForFunction(status => document.getElementById('update-progress-text').textContent === status, progress.status.replace(/\s*·\s*[\d.]+\s*MB\/s\s*$/, ''));
   };
   for (const connections of [4, 8]) {
@@ -91,7 +100,7 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.locator('.update-progress').getAttribute('aria-valuenow'), '25');
   }
   for (const [width, height] of [[480, 341], [800, 568], [1920, 1080]]) {
-    await desktop.evaluate(({ BrowserWindow }, bounds) => BrowserWindow.getAllWindows()[0].setBounds(bounds), { width, height });
+    await desktop.evaluate(({ BrowserWindow }, bounds) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().includes('updater=1')).setBounds(bounds), { width, height });
     await page.locator('#update-progress-wrap').scrollIntoViewIfNeeded();
     const layout = await page.evaluate(() => {
       const rect = id => { const { top, bottom, left, right } = document.getElementById(id).getBoundingClientRect(); return { top, bottom, left, right }; };
@@ -101,7 +110,11 @@ const server = http.createServer((req, res) => {
     assert.ok(layout.status.top >= Math.max(layout.summary.bottom, layout.percent.bottom), 'Status must be below download amounts');
     assert.ok(layout.speed.left > layout.status.right, 'Speed and transfer status must not overlap');
     assert.ok(layout.button.top >= layout.wrap.bottom + 8, 'Download information must not overlap the action button');
-    await page.screenshot({ path: path.join(testDir, `update-progress-${width}.png`) });
+    await desktop.evaluate(async ({ BrowserWindow }, output) => {
+      const window = BrowserWindow.getAllWindows().find(item => item.webContents.getURL().includes('updater=1'));
+      const image = await window.webContents.capturePage(undefined, { stayHidden:true, stayAwake:true });
+      process.mainModule.require('node:fs').writeFileSync(output, image.toPNG());
+    }, path.join(testDir, `update-progress-${width}.png`));
   }
   await sendProgress({ received: 128 * 1024 * 1024, percent: 100, status: '安装包校验通过，准备安装…' });
   await sendProgress({ percent: 100, status: '正在打开安装程序，安装完成后将自动重启…' });
@@ -110,11 +123,12 @@ const server = http.createServer((req, res) => {
   assert.equal(await page.locator('#update-percent').innerText(), '100.0%');
   assert.equal(await page.locator('#update-speed').innerText(), '');
   // Inspect compatibility without changing user policies or launching UAC.
-  const status = await page.evaluate(() => window.dayan.securityPolicyStatus());
+  const status = await mainPage.evaluate(() => window.dayan.securityPolicyStatus());
   assert.equal(status.error, ''); assert.equal(status.policies.length, 6);
   assert.equal(typeof status.fullProtectionSupported, 'boolean');
   if (status.editionId === 'Professional') assert.equal(status.fullProtectionSupported, false);
-  await page.evaluate(() => { document.getElementById('update-modal').hidden = true; });
+  await page.locator('#update-cancel').click({ noWaitAfter:true }).catch(error => { if (!page.isClosed()) throw error; });
+  page = mainPage;
   if (await page.locator('#settings-modal').getAttribute('hidden') !== null) await page.locator('#settings-toggle').click();
   await page.waitForFunction(() => document.getElementById('policy-status').dataset.state !== 'checking');
   for (const width of [480, 800]) {

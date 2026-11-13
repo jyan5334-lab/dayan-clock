@@ -1,4 +1,5 @@
 (() => {
+  if (new URLSearchParams(location.search).has('updater')) return;
   const bridge = window.dayan;
   const sections = [...document.querySelectorAll('[data-variant]')];
   const stage = document.getElementById('desktop-stage');
@@ -40,21 +41,8 @@
   const windowLayerInputs = [...document.querySelectorAll('[data-window-layer],[data-window-scope]')];
   const checkUpdate = document.getElementById('check-update');
   const updateCheckStatus = document.getElementById('update-check-status');
-  const updateModal = document.getElementById('update-modal');
-  const updateVersion = document.getElementById('update-version');
-  const updateNotes = document.getElementById('update-notes');
-  const updateProgressWrap = document.getElementById('update-progress-wrap');
-  const updateProgressBar = document.getElementById('update-progress-bar');
-  const updateProgressText = document.getElementById('update-progress-text');
-  const updateDownloaded = document.getElementById('update-downloaded');
-  const updateTotal = document.getElementById('update-total');
-  const updatePercent = document.getElementById('update-percent');
-  const updateSpeed = document.getElementById('update-speed');
-  const updateConfirm = document.getElementById('update-confirm');
-  const updateError = document.getElementById('update-error');
   let policyRequest, policyBusy = false, lastPolicy, returnToSettings = false;
   let chromeTimer;
-  let downloadProgress = {};
   let style = 1, widget;
   let displaySettings = { showAlmanac: true, modes: { clock: false, watch: true, down: true, up: true } };
   let autoStartEnabled = true;
@@ -379,60 +367,6 @@
     if (result?.available) updateCheckStatus.textContent = `发现 ${result.version}，请按提示更新`;
     else updateCheckStatus.textContent = result?.error || `当前已是最新版本（${result?.currentVersion || '未知'}）`;
   });
-  const showUpdate = info => {
-    downloadProgress = { received: 0, total: info.size || 0, percent: 0 };
-    document.getElementById('update-title').textContent = info.testOnly ? '本地更新测试 · 禁止安装' : '有新版本需要更新';
-    if (info.testOnly) {
-      document.title = 'DAYAN桌面 · 本地更新测试';
-      document.querySelector('.drag-area span').textContent = 'DAYAN桌面 · 本地更新测试';
-    }
-    updateVersion.textContent = `当前版本 ${info.currentVersion || '—'} · 新版本 ${info.version}`;
-    updateNotes.textContent = info.notes || '新版本已准备好，更新完成后程序会自动重新打开。';
-    updateError.hidden = true;
-    updateProgressWrap.hidden = true;
-    updateConfirm.disabled = Boolean(info.testOnly);
-    updateConfirm.querySelector('span').textContent = info.testOnly ? '测试更新不可安装' : '确定更新';
-    updateModal.hidden = false;
-    lucide.createIcons();
-  };
-  bridge.onUpdateAvailable(showUpdate);
-  bridge.onUpdateProgress(progress => {
-    downloadProgress = { ...downloadProgress, ...progress };
-    const total = Math.max(0, Number(downloadProgress.total) || 0);
-    const received = Math.max(0, Math.min(Number(downloadProgress.received) || 0, total || Infinity));
-    const percent = Math.max(0, Math.min(100, Number(downloadProgress.percent) || 0));
-    const megabytes = bytes => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-    updateProgressWrap.hidden = false;
-    updateProgressBar.style.width = `${percent}%`;
-    updateProgressBar.parentElement.setAttribute('aria-valuenow', String(percent));
-    updateProgressBar.parentElement.setAttribute('aria-valuetext', `${megabytes(received)} / ${total ? megabytes(total) : '大小获取中'}，${percent.toFixed(1)}%`);
-    updateDownloaded.textContent = `已下载 ${megabytes(received)}`;
-    updateTotal.textContent = total ? `总大小 ${megabytes(total)}` : '总大小 获取中…';
-    updatePercent.textContent = `${percent.toFixed(1)}%`;
-    updateProgressText.textContent = (progress.status || '正在下载更新…').replace(/\s*·\s*[\d.]+\s*MB\/s\s*$/, '');
-    updateSpeed.textContent = percent >= 100 ? '' : `${megabytes(Math.max(0, Number(downloadProgress.bytesPerSecond) || 0))}/s`;
-    if (updateConfirm.disabled) updateConfirm.querySelector('span').textContent = percent >= 100 ? '正在启动安装程序…' : '正在下载更新…';
-  });
-  bridge.onUpdateError(error => {
-    updateError.textContent = error?.message || '更新失败，请稍后重试';
-    updateError.hidden = false;
-    updateConfirm.disabled = false;
-    updateConfirm.querySelector('span').textContent = '重新更新';
-  });
-  updateConfirm.addEventListener('click', async () => {
-    updateError.hidden = true;
-    updateConfirm.disabled = true;
-    updateConfirm.querySelector('span').textContent = '正在准备更新…';
-    let result;
-    try { result = await bridge.updateInstall(); }
-    catch (error) { result = { ok: false, error: error.message || '安装交接失败，请重试' }; }
-    if (!result?.ok) {
-      updateError.textContent = result?.error || '更新失败，请稍后重试';
-      updateError.hidden = false;
-      updateConfirm.disabled = false;
-      updateConfirm.querySelector('span').textContent = '重新更新';
-    }
-  });
   securityForm.addEventListener('submit', async event => {
     event.preventDefault();
     clearSecurityError(securityError);
@@ -515,6 +449,7 @@
     script.onload = () => {
       document.querySelectorAll('[data-tooltip]').forEach(el => { el.title = el.dataset.tooltip; });
       document.documentElement.dataset.ready = 'true';
+      bridge.updateReady().catch(error => console.error('Update startup failed:', error));
     };
     document.head.append(script);
   }).catch(error => { console.error(error); });

@@ -28,6 +28,7 @@ let windowedBounds, presentationRequested = false, restoringBounds = false, rest
 let presentationDisplayId;
 let desktopHost, wallpaperControls, desktopHostDesired = false, desktopHostQueue = Promise.resolve(), desktopHostRequest = 0;
 let updateInfo = null, updateBusy = false, updateCheckPromise;
+let updateWindow, automaticUpdateTimer, rendererReady = false, updateDismissed = false, automaticUpdateAttempt = 0;
 let keyboardGuard, lockStarting = false, unlockInputEnabled = false;
 const stateFile = () => path.join(app.getPath('userData'), 'preferences.json');
 
@@ -120,7 +121,7 @@ function normalizeUpdatePayload(payload) {
 }
 
 function sendUpdateProgress(progress) {
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dayan:update-progress', progress);
+  if (updateWindow && !updateWindow.isDestroyed()) updateWindow.webContents.send('dayan:update-progress', progress);
 }
 
 function describeUpdateError(error) {
@@ -149,7 +150,7 @@ async function downloadUpdateFile(update, installerPath) {
     } });
 }
 
-async function checkForUpdates({ notifyRenderer = true } = {}) {
+async function checkForUpdates() {
   if (updateCheckPromise) return updateCheckPromise;
   if (updateMode.test && !updateMode.fixtureUrl) return { available: false, skipped: true, currentVersion: app.getVersion() };
   updateCheckPromise = (async () => {
@@ -158,7 +159,7 @@ async function checkForUpdates({ notifyRenderer = true } = {}) {
     let remote;
     const candidates = [];
     try {
-      remote = await Promise.any(endpoints.map(async endpoint => {
+      const requests = endpoints.map(async endpoint => {
         const headers = new URL(endpoint).hostname === 'api.github.com' ? updateHeaders() : { 'User-Agent': 'DAYANClock-Updater', Accept: 'application/json' };
         const response = await fetchWithRetry(endpoint, { headers: { ...headers, 'Cache-Control': 'no-cache' }, redirect: 'follow' }, { attempts: 2, timeout: 6000 });
         if (!response.ok) throw Error(`更新检查失败（HTTP ${response.status}）`);
@@ -167,18 +168,80 @@ async function checkForUpdates({ notifyRenderer = true } = {}) {
         candidates.push(candidate);
         if (updateInfo) updateInfo = mergeUpdateSources(updateInfo, candidate);
         return candidate;
-      }));
+      });
+      remote = await Promise.any(requests);
+      // A fast cached manifest must not hide a newer release on the other channel.
+      if (!isNewerVersion(remote.version, app.getVersion())) await Promise.allSettled(requests);
     } catch (error) { throw Error(describeUpdateError(error.errors?.[0] || error)); }
-    for (const candidate of candidates) remote = mergeUpdateSources(remote, candidate);
+    for (const candidate of candidates) remote = isNewerVersion(candidate.version, remote.version) ? candidate : mergeUpdateSources(remote, candidate);
     if (!remote || !isNewerVersion(remote.version, app.getVersion())) { updateInfo = null; return { available: false, currentVersion: app.getVersion(), checkedAt: new Date().toISOString() }; }
     updateInfo = { ...remote, currentVersion: app.getVersion(), testOnly: Boolean(updateMode.fixtureUrl) };
-    if (notifyRenderer && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dayan:update-available', updateInfo);
     return { available: true, ...updateInfo };
   })().catch(error => {
-    if (notifyRenderer && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dayan:update-error', { message: error.message || '更新检查失败' });
     return { available: false, error: error.message || '更新检查失败', currentVersion: app.getVersion() };
   }).finally(() => { updateCheckPromise = null; });
   return updateCheckPromise;
+}
+
+function localUpdateDate() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+function updateSender(event) {
+  return trusted(event) || event.sender === updateWindow?.webContents;
+}
+
+function offerUpdate({ manual = false } = {}) {
+  if (!updateInfo || !mainWindow || mainWindow.isDestroyed() || securityLocked || lockStarting || quitting) return;
+  if (!manual && (updateDismissed || state.updateReminderDate === localUpdateDate())) return;
+  if (updateWindow && !updateWindow.isDestroyed()) {
+    if (!updateBusy) updateWindow.webContents.send('dayan:update-available', updateInfo);
+    if (!updateMode.hideWindow) { updateWindow.show(); updateWindow.focus(); }
+    return;
+  }
+  if (updateBusy) return;
+  // Keep the wallpaper attached to Explorer; only this small prompt floats above it.
+  const area = screen.getPrimaryDisplay().workArea;
+  const width = Math.min(600, area.width - 24), height = Math.min(660, area.height - 24);
+  const window = new BrowserWindow({
+    x:Math.round(area.x + (area.width - width) / 2), y:Math.round(area.y + (area.height - height) / 2), width, height,
+    minWidth:320, minHeight:300, frame:false, show:false, skipTaskbar:true, minimizable:false, maximizable:false,
+    title:updateInfo.testOnly ? `${APP_NAME} · 本地更新测试` : `${APP_NAME} · 软件更新`,
+    icon:path.join(__dirname, '../assets/icon.ico'), backgroundColor:'#10191e',
+    webPreferences:{ preload:path.join(__dirname, 'preload.cjs'), nodeIntegration:false, contextIsolation:true, sandbox:true }
+  });
+  updateWindow = window;
+  window.setAlwaysOnTop(true, 'floating');
+  window.webContents.setWindowOpenHandler(() => ({ action:'deny' }));
+  window.webContents.on('will-navigate', event => event.preventDefault());
+  window.on('close', event => {
+    if (updateBusy && !quitting) { event.preventDefault(); return; }
+    if (!quitting) updateDismissed = true;
+  });
+  window.on('closed', () => { if (updateWindow === window) updateWindow = null; });
+  window.once('ready-to-show', () => { if (!updateMode.hideWindow && !securityLocked && !lockStarting && !quitting) { window.show(); window.focus(); } });
+  window.loadFile(path.join(__dirname, '../index.html'), { query:{ updater:'1' } }).catch(error => {
+    console.error('Unable to open update prompt:', error.message);
+    if (!window.isDestroyed()) window.destroy();
+  });
+}
+
+function scheduleAutomaticUpdate(delay = 0) {
+  clearTimeout(automaticUpdateTimer);
+  if (quitting || !rendererReady || process.argv.includes('--dayan-update-recovery')) return;
+  automaticUpdateTimer = setTimeout(async () => {
+    const result = await checkForUpdates();
+    if (quitting) return;
+    if (result.error) {
+      const delays = [15000, 60000, 300000];
+      if (automaticUpdateAttempt < delays.length) scheduleAutomaticUpdate(delays[automaticUpdateAttempt++]);
+    } else {
+      automaticUpdateAttempt = 0;
+      if (result.available) offerUpdate();
+    }
+  }, delay);
+  automaticUpdateTimer.unref();
 }
 
 async function downloadAndInstallUpdate() {
@@ -201,7 +264,7 @@ async function downloadAndInstallUpdate() {
     return { ok: true };
   } catch (error) {
     const message = describeUpdateError(error);
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dayan:update-error', { message });
+    if (updateWindow && !updateWindow.isDestroyed()) updateWindow.webContents.send('dayan:update-error', { message });
     return { ok: false, error: message };
   } finally { updateBusy = false; }
 }
@@ -364,7 +427,8 @@ function flushState() {
     const temporary = stateFile() + '.tmp';
     fs.writeFileSync(temporary, JSON.stringify(state));
     fs.renameSync(temporary, stateFile());
-  } catch (error) { console.error('Unable to save preferences:', error.message); }
+    return true;
+  } catch (error) { console.error('Unable to save preferences:', error.message); return false; }
 }
 
 function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(flushState, 150); }
@@ -679,8 +743,38 @@ function setupIPC() {
     flushState();
     return { ok: true, enabled: state.autoStart };
   });
-  ipcMain.handle('dayan:update-check', event => trusted(event) && !securityLocked ? checkForUpdates({ notifyRenderer: true }) : { available: false, error: '请先解锁时钟' });
-  ipcMain.handle('dayan:update-install', event => trusted(event) && !securityLocked ? downloadAndInstallUpdate() : { ok: false, error: '请先解锁时钟' });
+  ipcMain.handle('dayan:update-ready', event => {
+    if (event.sender === updateWindow?.webContents) return { available:Boolean(updateInfo), ...updateInfo };
+    if (!trusted(event)) return null;
+    if (!rendererReady) { rendererReady = true; scheduleAutomaticUpdate(); }
+    return { available:false };
+  });
+  ipcMain.handle('dayan:update-online', event => {
+    if (!trusted(event)) return false;
+    automaticUpdateAttempt = 0;
+    scheduleAutomaticUpdate(500);
+    return true;
+  });
+  ipcMain.handle('dayan:update-check', async event => {
+    if (!trusted(event) || securityLocked) return { available:false, error:'请先解锁时钟' };
+    const result = await checkForUpdates();
+    if (result.available) offerUpdate({ manual:true });
+    return result;
+  });
+  ipcMain.handle('dayan:update-dismiss', (event, action) => {
+    if (!updateSender(event) || !['today', 'cancel'].includes(action) || securityLocked || updateBusy) return { ok:false, error:'更新正在安装或请求无效' };
+    if (action === 'today') {
+      const previous = state.updateReminderDate;
+      state.updateReminderDate = localUpdateDate();
+      if (!flushState()) { state.updateReminderDate = previous; return { ok:false, error:'提醒设置保存失败，请重试' }; }
+    }
+    updateDismissed = true;
+    return { ok:true };
+  });
+  ipcMain.on('dayan:update-close', event => {
+    if (event.sender === updateWindow?.webContents && !securityLocked && !updateBusy) updateWindow.close();
+  });
+  ipcMain.handle('dayan:update-install', event => updateSender(event) && !securityLocked ? downloadAndInstallUpdate() : { ok: false, error: '请先解锁时钟' });
   ipcMain.handle('dayan:window-action', async (event, action) => {
     if (!trusted(event) || securityLocked) return false;
     if (action === 'minimize') mainWindow.minimize();
@@ -736,6 +830,7 @@ function setupIPC() {
     // Preserve the ordinary window before kiosk expands its native bounds.
     preparePresentation();
     securityLocked = true;
+    updateWindow?.hide();
     resizeSession = null;
     mainWindow.setMinimizable(false);
     mainWindow.setResizable(false);
@@ -762,6 +857,7 @@ function setupIPC() {
     mainWindow.setSkipTaskbar(false);
     await leavePresentation();
     notify();
+    offerUpdate();
     return true;
   });
   const pointerPosition = pointer => Number.isFinite(pointer?.x) && Number.isFinite(pointer?.y) ? pointer : screen.getCursorScreenPoint();
@@ -844,7 +940,7 @@ function createWindow() {
     if (securityLocked && !quitting) { event.preventDefault(); return; }
     flushState();
   });
-  mainWindow.on('closed', () => { clearTimeout(restoreBoundsTimer); keyboardGuard?.stop(); wallpaperControls?.destroy(); wallpaperControls = null; mainWindow = null; });
+  mainWindow.on('closed', () => { clearTimeout(restoreBoundsTimer); keyboardGuard?.stop(); wallpaperControls?.destroy(); wallpaperControls = null; mainWindow = null; updateWindow?.destroy(); });
   mainWindow.on('unresponsive', () => { keyboardGuard?.stop().then(notify); });
   mainWindow.webContents.on('render-process-gone', () => { keyboardGuard?.stop().then(notify); });
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -863,6 +959,7 @@ if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', async () => {
     if (!mainWindow) return;
+    scheduleAutomaticUpdate();
     if (!securityLocked && (desktopHostDesired || desktopWindowHosted)) await leavePresentation();
     if (!mainWindow) return;
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -898,7 +995,6 @@ else {
         if (action !== 'fullscreen') mainWindow.webContents.send('dayan:desktop-command', action);
       }
     });
-    if (!process.argv.includes('--dayan-update-recovery')) setTimeout(() => { checkForUpdates(); }, updateMode.fixtureUrl ? 250 : 2500);
     const updateDisplayBounds = async () => {
       if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized()) return;
       if (isPresentationFullscreen()) await applyPresentationWindow(true);
@@ -914,6 +1010,7 @@ else {
   app.on('before-quit', () => {
     quitting = true;
     clearTimeout(desktopReconcileTimer);
+    clearTimeout(automaticUpdateTimer);
     clearInterval(trayReconcileInterval);
     tray?.destroy();
     tray = null;
