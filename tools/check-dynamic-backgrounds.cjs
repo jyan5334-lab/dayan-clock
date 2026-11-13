@@ -42,7 +42,7 @@ let browser, desktop;
     assert.equal(await animation.locator('body > h1').isVisible(), false);
     assert.equal(await animation.locator('.ctrl').isVisible(), false);
     await adapted.screenshot({ path: path.join(output, `preview-${scene.id}.png`) });
-    fs.copyFileSync(path.join(output, `preview-${scene.id}.png`), path.join(root, 'assets/backgrounds/dynamic', `preview-${scene.id}.png`));
+    if (process.argv.includes('--update-previews')) fs.copyFileSync(path.join(output, `preview-${scene.id}.png`), path.join(root, 'assets/backgrounds/dynamic', `preview-${scene.id}.png`));
     for (const [width, height] of [[1920, 1080], [3440, 1440], [1080, 1920]]) {
       await adapted.setViewportSize({ width, height });
       const box = await animation.locator('body > svg').boundingBox();

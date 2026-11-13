@@ -6,7 +6,7 @@ const { createInterface } = require('node:readline');
 const { once } = require('node:events');
 const { _electron } = require(process.env.DAYAN_PLAYWRIGHT_MODULE || 'playwright');
 const root = path.resolve(__dirname, '..');
-const testDir = fs.mkdtempSync(path.join(root, 'work/keyboard-'));
+const testDir = fs.mkdtempSync('D:/Codex/Temp/dayan-keyboard-');
 const data = path.join(testDir, 'data');
 fs.mkdirSync(data);
 fs.writeFileSync(path.join(data, 'preferences.json'), JSON.stringify({ settingsGuideVersion:1, windowLayers:{unlocked:'bottom',locked:'top'}, bounds:{x:50,y:50,width:800,height:568} }));
@@ -25,7 +25,7 @@ async function send(events,click=false) {
   const id = ++requestId;
   return new Promise((resolve,reject)=>{
     const timeout=setTimeout(()=>{requests.delete(id);reject(Error(`Probe timeout at request ${id}; completed: ${checks.join('; ')}`));},5000);
-    requests.set(id,result=>{clearTimeout(timeout);if(result.error){reject(Error(result.error));return;}if(result.sent!==events.length){reject(Error('Native input injection incomplete'));return;}resolve(result);});
+    requests.set(id,result=>{clearTimeout(timeout);if(result.error){reject(Error(`Request ${id}: ${result.error}; completed: ${checks.join('; ')}`));return;}if(result.sent!==events.length){reject(Error('Native input injection incomplete'));return;}resolve(result);});
     probe.stdin.write(JSON.stringify({id,command:'keys',events,window:Number(targetWindow),click,...focusPoint})+'\n');
   });
 }
@@ -45,22 +45,25 @@ async function nativeGuard(hwnd,pid) {
   await new Promise(resolve=>lines.once('line',line=>{assert.equal(JSON.parse(line).ready,true);resolve();}));
   lines.on('line',line=>{const result=JSON.parse(line);requests.get(result.id)?.(result);requests.delete(result.id);});
   const env={...process.env,DAYAN_TEST:'1',DAYAN_TEST_DATA:data}; delete env.ELECTRON_RUN_AS_NODE;
-  desktop=await _electron.launch({executablePath:packaged?path.join(root,'release/win-unpacked/DAYANClock.exe'):require(path.join(root,'node_modules/electron')),args:packaged?[]:[root],env});
+  desktop=await _electron.launch({executablePath:packaged?path.join(process.env.DAYAN_RELEASE_DIR,'win-unpacked/DAYANClock.exe'):require(path.join(root,'node_modules/electron')),args:packaged?[]:[root],env});
+  desktop.process().stderr.on('data',chunk=>fs.appendFileSync(path.join(testDir,'desktop-stderr.log'),chunk));
   const page=await desktop.firstWindow(), errors=[];
   page.on('pageerror',error=>errors.push(error.message));
   await page.waitForSelector('html[data-ready=true]');
+  await page.waitForTimeout(500);
   targetWindow=await desktop.evaluate(({BrowserWindow})=>{const win=BrowserWindow.getAllWindows()[0];win.setAlwaysOnTop(true);win.show();win.focus();return win.getNativeWindowHandle().readBigUInt64LE().toString();});
   await page.evaluate(()=>{const input=document.createElement('input');input.type='password';input.id='native-input-probe';input.style.cssText='position:fixed;bottom:4px;left:4px;z-index:99';document.body.append(input);input.focus();});
   const rect=await page.locator('#native-input-probe').boundingBox();
   focusPoint=await desktop.evaluate(({BrowserWindow,screen},rect)=>{const win=BrowserWindow.getAllWindows()[0],bounds=win.getContentBounds();return screen.dipToScreenPoint({x:Math.round(bounds.x+rect.x+rect.width/2),y:Math.round(bounds.y+rect.y+rect.height/2)});},rect);
   await send([],true);
+  await send([{vk:0x11,scan:0,flags:2}]);
   await page.locator('#native-input-probe').focus();
   assert.equal((await send(key(0x41))).received,2);
   assert.equal(await page.locator('#native-input-probe').inputValue(),'a',JSON.stringify(await page.evaluate(()=>({active:document.activeElement.id,focused:document.hasFocus()}))));
   checks.push('Downstream native probe and ordinary real keyboard input work before locking');
   assert.equal((await page.evaluate(()=>window.dayan.securitySetPassword({current:'',next:'123456'}))).ok,true);
   assert.equal((await send([{vk:0x11,scan:0,flags:0}])).received,1);
-  assert.equal(await page.evaluate(()=>window.dayan.securityLock()),true);
+  assert.equal(await page.evaluate(()=>window.dayan.securityLock()),true,fs.existsSync(path.join(testDir,'desktop-stderr.log'))?fs.readFileSync(path.join(testDir,'desktop-stderr.log'),'utf8'):'');
   await page.waitForFunction(()=>document.documentElement.classList.contains('locked'));
   await page.waitForTimeout(400);
   assert.equal((await page.evaluate(()=>window.dayan.load())).keyboardGuardActive,true);
@@ -70,10 +73,18 @@ async function nativeGuard(hwnd,pid) {
   assert.equal((await send([...key(0x31),...key(0x62)])).received,0);
   assert.equal(await page.locator('#unlock-password').inputValue(),'');
   checks.push('Native Win keys, common system shortcuts and ordinary keys are swallowed; closed unlock panel accepts no digits');
-  await page.mouse.move(30,2);
-  await page.locator('#lock').click();
+  await page.locator('[data-variant]:not([hidden]) .unlock-launch').click();
   await page.waitForSelector('#unlock-panel:not([hidden])');
   await page.waitForTimeout(150);
+  await page.locator('[data-unlock-key="7"]').click();
+  await page.locator('[data-unlock-key="Backspace"]').click();
+  assert.equal(await page.locator('#unlock-password').inputValue(),'');
+  // A taskbar activation must not discard approved numeric input while the form is open.
+  await desktop.evaluate(({BrowserWindow})=>{const win=BrowserWindow.getAllWindows()[0];win.blur();win.webContents.send('dayan:unlock-key','1');});
+  await page.waitForFunction(()=>document.getElementById('unlock-password').value==='1');
+  assert.equal(await page.locator('#unlock-password').inputValue(),'1');
+  await desktop.evaluate(({BrowserWindow})=>{const win=BrowserWindow.getAllWindows()[0];win.webContents.send('dayan:unlock-key','Backspace');win.focus();});
+  checks.push('Visible unlock entry and mouse numeric keypad work without policy authorization; unlock IPC remains accepted during transient native focus loss');
   await send(chord(0x10,0x34));
   assert.equal(await page.locator('#unlock-password').inputValue(),'');
   await send([...key(0x30),...key(0x30),...key(0x30),...key(0x30),...key(0x0D)]);

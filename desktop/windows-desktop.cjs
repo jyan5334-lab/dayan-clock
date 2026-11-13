@@ -24,7 +24,28 @@ function createDesktopHost(userData) {
       result.ok && code === 0 ? resolve(result) : reject(Error(result.error || errors));
     });
   });
-  let snapshot;
+  let snapshot, watcher, watchedBounds;
+  const stopWatcher = async () => {
+    const child = watcher;
+    watcher = null;
+    watchedBounds = null;
+    if (!child || child.exitCode !== null) return;
+    await new Promise(resolve => {
+      const timer = setTimeout(() => { child.kill(); resolve(); }, 1000);
+      child.once('exit', () => { clearTimeout(timer); resolve(); });
+      child.stdin.end();
+    });
+  };
+  const watch = async (window, bounds) => {
+    const signature = JSON.stringify(bounds);
+    if (watcher && watcher.exitCode === null && signature === watchedBounds) return;
+    await stopWatcher();
+    const child = spawn(executable, ['watch', ...identity(window), bounds.x, bounds.y, bounds.width, bounds.height, snapshot.parent].map(String), { windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'] });
+    child.stdin.on('error', () => {});
+    child.on('error', error => console.error('Desktop layer watcher:', error.message));
+    watcher = child;
+    watchedBounds = signature;
+  };
   const identity = window => {
     const handle = window.getNativeWindowHandle();
     return [handle.length >= 8 ? handle.readBigUInt64LE().toString() : String(handle.readUInt32LE()), process.pid];
@@ -32,17 +53,23 @@ function createDesktopHost(userData) {
   return {
     run,
     async attach(window, bounds) {
-      if (snapshot) return run(['resize', ...identity(window), bounds.x, bounds.y, bounds.width, bounds.height, snapshot.parent, snapshot.iconView || '0']);
+      if (snapshot) {
+        const resized = await run(['resize', ...identity(window), bounds.x, bounds.y, bounds.width, bounds.height, snapshot.parent, snapshot.iconView || '0']);
+        await watch(window, bounds);
+        return resized;
+      }
       const original = await run(['snapshot', ...identity(window)]);
       window.setIgnoreMouseEvents(true, { forward: true });
       try {
         const attached = await run(['attach', ...identity(window), bounds.x, bounds.y, bounds.width, bounds.height]);
         snapshot = { ...attached, originalStyle: original.originalStyle, originalExtendedStyle: original.originalExtendedStyle };
+        await watch(window, bounds);
       }
       catch (error) { window.setIgnoreMouseEvents(false); throw error; }
       return snapshot;
     },
     async detach(window) {
+      await stopWatcher();
       window.setIgnoreMouseEvents(false);
       if (!snapshot) return;
       const result = await run(['detach', ...identity(window), snapshot.originalStyle, snapshot.originalExtendedStyle]);

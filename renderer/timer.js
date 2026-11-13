@@ -23,7 +23,7 @@
     presentationLayout=layout;
     const all=layout?.scope==='all'&&layout.area&&layout.content;
     root.classList.toggle('presentation-all',Boolean(all));
-    if(!all){
+    if(!layout?.area||!layout?.content){
       for(const name of ['--dayan-primary-left','--dayan-primary-top','--dayan-primary-width','--dayan-primary-height'])root.style.removeProperty(name);
       return;
     }
@@ -53,6 +53,8 @@
     app.insertAdjacentHTML('afterbegin','<div class="wallpaper-media" aria-hidden="true"></div>');
     q('.date').insertAdjacentHTML('afterend','<div class="almanac" hidden aria-label="今日黄历"><div class="almanac-main"><span class="almanac-lunar"></span><span class="almanac-day"></span></div><div class="almanac-note"></div><div class="almanac-row"><span class="almanac-label good">宜</span><span data-almanac-yi></span></div><div class="almanac-row"><span class="almanac-label avoid">忌</span><span data-almanac-ji></span></div></div>');
     q('.brand span').textContent='DAYAN桌面';
+    q('.almanac').insertAdjacentHTML('afterend',`<button type="button" class="unlock-launch" aria-label="点击解锁">${icon('lock-keyhole')}<span>点击解锁</span></button>`);
+    q('.unlock-launch').addEventListener('click',()=>root.dispatchEvent(new Event('dayan:show-unlock')));
     ['clock','watch','down','up'].forEach(mode=>q('.modes').append(q(`[data-mode="${mode}"]`)));
     const artwork=window.dayanStyles.attach(app,variants[i]);
     let lastDisplay='',lastAction='',lastStatus='',lastBackground=null,lastMediaLayout=null;

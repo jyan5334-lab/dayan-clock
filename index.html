@@ -53,6 +53,12 @@
       <form id="unlock-form">
         <label class="sr-only" for="unlock-password">锁屏密码</label>
         <input id="unlock-password" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="current-password" placeholder="输入数字密码" maxlength="16">
+        <div id="unlock-keypad" role="group" aria-label="解锁数字键盘">
+          <button type="button" data-unlock-key="1">1</button><button type="button" data-unlock-key="2">2</button><button type="button" data-unlock-key="3">3</button>
+          <button type="button" data-unlock-key="4">4</button><button type="button" data-unlock-key="5">5</button><button type="button" data-unlock-key="6">6</button>
+          <button type="button" data-unlock-key="7">7</button><button type="button" data-unlock-key="8">8</button><button type="button" data-unlock-key="9">9</button>
+          <button type="button" id="unlock-system-keyboard" aria-label="打开系统键盘" title="打开系统键盘"><i data-lucide="keyboard"></i></button><button type="button" data-unlock-key="0">0</button><button type="button" data-unlock-key="Backspace" aria-label="删除一位"><i data-lucide="delete"></i></button>
+        </div>
         <button type="submit">解锁</button>
       </form>
       <p id="unlock-error" class="security-error" role="alert" hidden></p>

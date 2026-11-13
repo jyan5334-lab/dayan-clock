@@ -16,6 +16,7 @@
     "test:desktop-startup": "node desktop/build-update-host.cjs && node tools/check-desktop-startup.cjs",
     "test:dynamic-backgrounds": "node tools/check-dynamic-backgrounds.cjs",
     "test:keyboard": "node desktop/build-update-host.cjs && node tools/check-keyboard-guard.cjs",
+    "test:unlock-layout": "node tools/check-unlock-layout.cjs",
     "test:policy-restore": "node tools/check-policy-restore.cjs",
     "test:policy-ui": "node tools/check-policy-ui.cjs",
     "start": "node desktop/build-update-host.cjs && electron .",
@@ -33,6 +34,7 @@
     "productName": "DAYAN桌面",
     "executableName": "DAYANClock",
     "asar": true,
+    "asarUnpack": ["scripts/configure-startup.ps1"],
     "compression": "maximum",
     "electronDist": "node_modules/electron/dist",
     "directories": {
@@ -52,6 +54,7 @@
       "desktop/policy-backups.cjs",
       "desktop/windows-desktop.cjs",
       "desktop/keyboard-guard.cjs",
+      "desktop/windows-startup.cjs",
       "desktop/wallpaper-controls.cjs",
       "desktop/wallpaper-controls.html",
       "desktop/wallpaper-preload.cjs",
@@ -78,6 +81,7 @@
       "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
+      "include": "scripts/installer.nsh",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,

@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('dayan', {
   windowAction: action => ipcRenderer.invoke('dayan:window-action', action),
   securitySetPassword: payload => ipcRenderer.invoke('dayan:security-set-password', payload),
   securityLock: () => ipcRenderer.invoke('dayan:security-lock'),
+  securityKeyboard: () => ipcRenderer.invoke('dayan:security-keyboard'),
   securityVerify: password => ipcRenderer.invoke('dayan:security-verify', password),
   securityUnlockInput: enabled => ipcRenderer.invoke('dayan:security-unlock-input', enabled),
   onUnlockKey: callback => {

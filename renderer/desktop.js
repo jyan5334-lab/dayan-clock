@@ -195,8 +195,10 @@
     clearSecurityError(unlockError);
     unlockPassword.value = '';
     unlockPassword.focus();
+    bridge.securityUnlockInput(true);
     revealChrome();
   };
+  document.getElementById('simple-timers').addEventListener('dayan:show-unlock', showUnlockPanel);
   const hideUnlockPanel = () => {
     bridge.securityUnlockInput(false);
     unlockPanel.hidden = true;
@@ -208,14 +210,25 @@
   const enableUnlockInput = () => { if (security.locked && !unlockPanel.hidden) bridge.securityUnlockInput(true); };
   unlockPassword.addEventListener('focus', enableUnlockInput);
   unlockPassword.addEventListener('pointerdown', enableUnlockInput);
-  bridge.onUnlockKey(key => {
-    if (!security.locked || unlockPanel.hidden || document.activeElement !== unlockPassword) return;
+  const applyUnlockKey = key => {
+    if (!security.locked || unlockPanel.hidden) return;
+    unlockPassword.focus({ preventScroll: true });
     const start = unlockPassword.selectionStart, end = unlockPassword.selectionEnd;
     if (/^\d$/.test(key)) {
       if (unlockPassword.value.length - (end - start) < 16) unlockPassword.setRangeText(key, start, end, 'end');
     } else if (key === 'Backspace') {
       unlockPassword.setRangeText('', start === end ? Math.max(0, start - 1) : start, end, 'end');
     } else if (key === 'Enter') unlockForm.requestSubmit();
+  };
+  bridge.onUnlockKey(applyUnlockKey);
+  document.getElementById('unlock-keypad').addEventListener('pointerdown', event => event.preventDefault());
+  document.getElementById('unlock-keypad').addEventListener('click', event => {
+    const key = event.target.closest('[data-unlock-key]')?.dataset.unlockKey;
+    if (key) applyUnlockKey(key);
+  });
+  document.getElementById('unlock-system-keyboard').addEventListener('click', async () => {
+    const result = await bridge.securityKeyboard();
+    if (!result?.ok) showSecurityError(unlockError, '系统键盘暂不可用，请使用上方数字键盘');
   });
   document.addEventListener('keydown', event => {
     if (security.locked && !isUnlockEditingKey(event)) {
@@ -261,6 +274,10 @@
   const syncWindow = state => {
     const presentationLayout = state.fullscreen ? state.presentationLayout : null;
     window.dayanPresentationLayout = presentationLayout;
+    const content = presentationLayout?.content;
+    const area = presentationLayout?.area;
+    const primary = content && area ? { x: content.x - area.x, y: content.y - area.y, width: content.width, height: content.height } : { x: 0, y: 0, width: innerWidth, height: innerHeight };
+    for (const [name, value] of Object.entries(primary)) document.documentElement.style.setProperty(`--unlock-${name}`, `${value}px`);
     document.getElementById('simple-timers').dispatchEvent(new CustomEvent('dayan:presentation-layout', { detail: presentationLayout }));
     document.getElementById('pin').setAttribute('aria-pressed', String(state.pinned));
     const full = document.getElementById('fullscreen');

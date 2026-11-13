@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Web.Script.Serialization;
+using System.Threading;
 
 internal static class DesktopHost {
   private delegate bool EnumProc(IntPtr hwnd, IntPtr extra);
@@ -116,6 +117,10 @@ internal static class DesktopHost {
           try {
             SetStyle(hwnd, -16, new IntPtr((style | 0x40000000L | 0x04000000L) & ~0x80C40000L));
             SetStyle(hwnd, -20, new IntPtr((extended | 0x08000000L | 0x80L) & ~0x40000L));
+            if (parent == root && (GetStyle(parent, -20).ToInt64() & 0x00200000L) != 0) {
+              SetStyle(hwnd, -20, new IntPtr(GetStyle(hwnd, -20).ToInt64() | 0x00080000L));
+              if (!SetLayeredWindowAttributes(hwnd, 0, 255, 2)) throw new Exception("Desktop composition failed.");
+            }
             SetParent(hwnd, parent);
             if (GetParent(hwnd) != parent) throw new Exception("Explorer rejected desktop parenting.");
             var origin = new Point { X = rect.Left, Y = rect.Top };
@@ -128,6 +133,24 @@ internal static class DesktopHost {
             throw;
           }
           output = new { ok = true, parent = parent.ToInt64().ToString(), iconRoot = root.ToInt64().ToString(), iconView = view.ToInt64().ToString(), originalStyle = style.ToString(), originalExtendedStyle = extended.ToString(), layout = parent == root ? "shared-icon-root" : "wallpaper-worker", window = Describe(hwnd) };
+        } else if (args[0] == "watch") {
+          var parent = new IntPtr(long.Parse(args[7]));
+          int left = int.Parse(args[3]), top = int.Parse(args[4]), width = int.Parse(args[5]), height = int.Parse(args[6]);
+          bool ended = false;
+          var reader = new Thread(() => { try { while (Console.ReadLine() != null) {} } catch {} finally { Volatile.Write(ref ended, true); } });
+          reader.IsBackground = true; reader.Start();
+          while (!Volatile.Read(ref ended) && IsWindow(hwnd) && IsWindow(parent) && GetParent(hwnd) == parent) {
+            IntPtr view; var root = IconsRoot(out view);
+            if (view != IntPtr.Zero) EnsureDesktopLayers(hwnd, parent, view);
+            Rect current; GetWindowRect(hwnd, out current);
+            if (current.Left != left || current.Top != top || current.Right - current.Left != width || current.Bottom - current.Top != height) {
+              var origin = new Point { X = left, Y = top };
+              MapWindowPoints(IntPtr.Zero, parent, ref origin, 1);
+              SetWindowPos(hwnd, parent == root ? view : IntPtr.Zero, origin.X, origin.Y, width, height, 0x10 | 0x40);
+            }
+            Thread.Sleep(250);
+          }
+          output = new { ok = true };
         } else if (args[0] == "resize") {
           var parent = GetParent(hwnd);
           if (parent == IntPtr.Zero || parent.ToInt64().ToString() != args[7]) throw new Exception("Desktop parent changed; reopen desktop mode.");

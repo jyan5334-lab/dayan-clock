@@ -38,7 +38,7 @@ internal static class KeyboardGuard {
     bool down = message.ToInt64() == 0x100 || message.ToInt64() == 0x104;
     if (Modifier(key.Key)) {
       if (down) heldModifiers.Add(key.Key); else heldModifiers.Remove(key.Key);
-    } else if (down && inputEnabled && heldModifiers.Count == 0 && GetForegroundWindow() == window) {
+    } else if (down && inputEnabled && heldModifiers.Count == 0) {
       string value = null;
       if (key.Key >= 0x30 && key.Key <= 0x39) value = ((char)key.Key).ToString();
       else if (key.Key >= 0x60 && key.Key <= 0x69) value = ((char)('0' + key.Key - 0x60)).ToString();

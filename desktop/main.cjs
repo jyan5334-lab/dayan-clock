@@ -8,12 +8,14 @@ const { prepareUpdateInstall } = require('./update-install.cjs');
 const { createDesktopHost } = require('./windows-desktop.cjs');
 const { createWallpaperControls } = require('./wallpaper-controls.cjs');
 const { createKeyboardGuard } = require('./keyboard-guard.cjs');
+const { configureWindowsStartup } = require('./windows-startup.cjs');
 const { downloadUpdate, mergeUpdateSources, SOURCE_POOL_LIMIT } = require('./update-download.cjs');
 const { networkFetch, downloadTransports } = require('./update-network.cjs');
 const { resolveUpdateMode } = require('./update-mode.cjs');
 const { migrateLegacyBackups, hasBackups, matchesRestoredPolicies } = require('./policy-backups.cjs');
 
 const APP_NAME = 'DAYAN桌面';
+const launchedAt = Date.now();
 const DEFAULT_WINDOW_LAYERS = Object.freeze({ unlocked: 'top', locked: 'top' });
 app.setName(APP_NAME);
 app.setAppUserModelId('com.dayan.clock');
@@ -30,6 +32,7 @@ let desktopHost, wallpaperControls, desktopHostDesired = false, desktopHostQueue
 let updateInfo = null, updateBusy = false, updateCheckPromise;
 let updateWindow, automaticUpdateTimer, rendererReady = false, updateDismissed = false, automaticUpdateAttempt = 0;
 let keyboardGuard, lockStarting = false, unlockInputEnabled = false;
+let configuredAutoStart;
 const stateFile = () => path.join(app.getPath('userData'), 'preferences.json');
 
 function normalizeDisplaySettings(value) {
@@ -48,8 +51,23 @@ function normalizeWindowLayers(value) {
 function applyAutoStart(enabled) {
   const value = enabled !== false;
   if (process.env.DAYAN_TEST === '1') return value;
+  if (configuredAutoStart === value) return value;
+  configuredAutoStart = value;
   try { app.setLoginItemSettings({ openAtLogin: value, path: process.execPath, args: process.platform === 'win32' ? ['--dayan-login-start'] : [] }); }
   catch (error) { console.error('Unable to configure auto-start:', error.message); }
+  if (process.platform === 'win32' && app.isPackaged) {
+    configureWindowsStartup(process.execPath, value).then(result => {
+      if (result.ok && (state.autoStart !== false) === value) {
+        // Keep the Run fallback until the per-user logon task is registered.
+        app.setLoginItemSettings({ openAtLogin: false, path: process.execPath, args: ['--dayan-login-start'] });
+        state.autoStartMode = value ? 'logon-task' : 'disabled';
+      } else if (!result.ok) {
+        state.autoStartMode = value ? 'run-fallback' : 'disable-pending';
+        console.error('Unable to configure logon task:', result.error);
+      }
+      scheduleSave();
+    }).catch(error => console.error('Unable to configure logon task:', error.message));
+  }
   return value;
 }
 
@@ -626,7 +644,15 @@ function setDesktopWindowMode(hosted, display) {
     if (request !== desktopHostRequest || window.isDestroyed()) return;
     if (hosted) {
       const area = (display || presentationArea()).bounds;
-      await desktopHost.attach(window, screen.dipToScreenRect(window, area));
+      const attempts = openedAtLogin && !desktopWindowHosted ? 12 : 1;
+      for (let attempt = 0; attempt < attempts; attempt++) {
+        if (request !== desktopHostRequest || window.isDestroyed()) return;
+        try { await desktopHost.attach(window, screen.dipToScreenRect(window, area)); break; }
+        catch (error) {
+          if (attempt + 1 === attempts || !/icon layer was not found|desktop parenting|desktop parent changed/i.test(error.message)) throw error;
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
     }
     else await desktopHost.detach(window);
     desktopWindowHosted = hosted;
@@ -655,8 +681,8 @@ function applyPresentationWindow(refreshBounds = false) {
   if (fullscreenLayer() === 'bottom' && !securityLocked && desktopHost) {
     mainWindow.setSkipTaskbar(true);
     if (!desktopHostDesired && !desktopWindowHosted) {
-      // Enter Chromium fullscreen before parenting so its client area has no resize insets.
-      mainWindow.setFullScreen(true);
+      // A desktop child must not retain a monitor-scoped native fullscreen state.
+      mainWindow.setFullScreen(false);
       mainWindow.setAlwaysOnTop(false);
     }
     if (!desktopHostDesired || refreshBounds) return setDesktopWindowMode(true, display);
@@ -810,6 +836,14 @@ function setupIPC() {
     keyboardGuard?.setInput(enabled);
     return true;
   });
+  ipcMain.handle('dayan:security-keyboard', async event => {
+    if (!trusted(event) || !securityLocked || !unlockInputEnabled || process.platform !== 'win32') return { ok: false };
+    return new Promise(resolve => {
+      const child = spawn(path.join(process.env.SystemRoot, 'System32', 'osk.exe'), [], { detached: true, stdio: 'ignore' });
+      child.once('error', () => resolve({ ok: false }));
+      child.once('spawn', () => { child.unref(); resolve({ ok: true }); });
+    });
+  });
   ipcMain.handle('dayan:security-lock', async (event) => {
     if (!trusted(event) || !passwordRecord() || policyOperation || lockStarting || securityLocked) return false;
     lockStarting = true;
@@ -836,16 +870,16 @@ function setupIPC() {
     mainWindow.setMinimizable(false);
     mainWindow.setResizable(false);
     mainWindow.setSkipTaskbar(true);
-    const forceKiosk = () => {
+    const forceKiosk = async () => {
       if (!mainWindow || mainWindow.isDestroyed() || !securityLocked) return;
-      applyPresentationWindow();
+      await applyPresentationWindow();
+      if (!mainWindow || mainWindow.isDestroyed() || !securityLocked) return;
       mainWindow.show();
       mainWindow.focus();
       restorePinnedState();
       notify();
     };
-    forceKiosk();
-    setTimeout(forceKiosk, 250);
+    await forceKiosk();
     return true;
   });
   ipcMain.handle('dayan:security-verify', async (event, password) => {
@@ -887,7 +921,7 @@ function createWindow() {
     minWidth: MIN_WIDTH, minHeight: Math.round(MIN_WIDTH / RATIO),
     title: updateMode.fixtureUrl ? `${APP_NAME} · 本地更新测试` : APP_NAME, icon: path.join(__dirname, '../assets/icon.png'),
     skipTaskbar: updateMode.hideWindow,
-    frame: false, resizable: true, maximizable: false, fullscreenable: true,
+    frame: false, thickFrame: false, resizable: true, maximizable: false, fullscreenable: true,
     backgroundColor: '#080c10', show: false, autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false }
   });
@@ -922,6 +956,7 @@ function createWindow() {
     else queueWindowedRestore();
   });
   mainWindow.once('ready-to-show', () => {
+    state.lastStartup = { startedAt: new Date(launchedAt).toISOString(), readyMs: Date.now() - launchedAt, login: openedAtLogin };
     if (!updateMode.hideWindow) mainWindow.show();
     restoreWindowedBounds();
     if (openedAtLogin && state.autoStart !== false && !updateMode.fixtureUrl) {
@@ -931,6 +966,8 @@ function createWindow() {
         Promise.resolve(applyPresentationWindow()).then(() => {
           if (!mainWindow || mainWindow.isDestroyed()) return;
           if (!desktopWindowHosted) { mainWindow.show(); mainWindow.focus(); }
+          state.lastStartup.presentationMs = Date.now() - launchedAt;
+          scheduleSave();
           notify();
         }).catch(error => console.error('Unable to restore presentation at login:', error.message));
       }, 220);
@@ -976,7 +1013,7 @@ else {
       catch (error) { console.error('Desktop host unavailable:', error.message); }
       try {
         keyboardGuard = createKeyboardGuard(app.getPath('userData'), {
-          onKey: key => { if (securityLocked && unlockInputEnabled && mainWindow?.isFocused()) mainWindow.webContents.send('dayan:unlock-key', key); },
+          onKey: key => { if (securityLocked && unlockInputEnabled && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dayan:unlock-key', key); },
           onStopped: () => { if (securityLocked) { unlockInputEnabled = false; notify(); } }
         });
       } catch (error) { console.error('Keyboard guard unavailable:', error.message); }

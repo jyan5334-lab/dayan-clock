@@ -64,11 +64,18 @@ html:not([data-fullscreen="true"]) #simple-timers .brand { display:none; }
 #simple-timers .has-background .almanac { text-shadow:0 1px 4px #000; }
 
 /* Application lock: the clock remains visible while the window controls are gated by the password. */
-#lock-screen { position:fixed;inset:0;z-index:35;display:grid;place-items:center;background:transparent;pointer-events:auto; }
-#lock-screen.has-panel { background:#0007; }
+#lock-screen { position:fixed;inset:0;z-index:35;display:block;background:transparent;pointer-events:none; }
+#lock-screen.has-panel { background:#0007;pointer-events:auto; }
 #keyboard-protection-error { position:fixed;left:24px;right:24px;top:54px;margin:0;text-align:center;color:#ff9aab;font-size:14px;pointer-events:none; }
 #lock-screen .security-panel { width:min(360px,calc(100vw - 40px)); }
-#unlock-panel { display:grid; }
+#unlock-panel { display:grid;position:absolute;left:calc(var(--unlock-x,0px) + var(--unlock-width,100vw)/2);top:calc(var(--unlock-y,0px) + var(--unlock-height,100vh)/2);transform:translate(-50%,-50%);max-width:calc(var(--unlock-width,100vw) - 24px);max-height:calc(var(--unlock-height,100vh) - 24px);overflow:auto; }
+#simple-timers .unlock-launch { display:none; }
+html.locked #simple-timers .unlock-launch { position:relative;z-index:36;display:inline-flex;flex:none;align-items:center;justify-content:center;gap:7px;min-height:36px;margin:14px auto 0;padding:6px 14px;border:1px solid #99ffda66;border-radius:5px;background:#0b1719dd;color:#b0ffe7;font-size:14px;pointer-events:auto; }
+.unlock-launch svg { width:17px;height:17px; }
+#unlock-keypad { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px; }
+.security-panel #unlock-keypad button { height:36px;border:1px solid #ffffff30;background:#16272b;color:#eaf7f3;font-size:16px;display:grid;place-items:center; }
+.security-panel #unlock-keypad button:hover { background:#29443f; }
+#unlock-keypad svg { width:18px;height:18px; }
 .security-panel { position:relative;gap:12px;padding:28px;background:#0c1519ee;border:1px solid #9affdf66;border-radius:10px;box-shadow:0 20px 70px #000b;color:#eaf7f3;text-align:center;backdrop-filter:blur(12px); }
 .security-panel-icon { display:grid;place-items:center;width:42px;height:42px;margin:0 auto 2px;border:1px solid #93ffe066;border-radius:50%;color:#9affdf; }
 .security-panel-icon svg { width:20px;height:20px; }
@@ -229,3 +236,21 @@ html[data-fullscreen="true"] #simple-timers .almanac-note { font-size:clamp(11px
 html[data-fullscreen="true"] #simple-timers .modes button { font-size:clamp(12px,1vw,18px);padding:clamp(8px,.7vw,15px) clamp(12px,1vw,22px); }
 html[data-fullscreen="true"] #simple-timers .brand { font-size:clamp(13px,1vw,20px); }
 html[data-fullscreen="true"] #simple-timers .background-tools { right:clamp(18px,3vw,56px);bottom:clamp(18px,3vw,56px); }
+
+/* Keep the complete clock and its unlock entry inside the content monitor. */
+html[data-fullscreen="true"] #simple-timers .timer > .display {
+  position:absolute;left:var(--dayan-primary-left,0px);top:var(--dayan-primary-top,0px);
+  width:var(--dayan-primary-width,100vw);height:var(--dayan-primary-height,100vh)!important;
+  margin:0;padding:clamp(24px,calc(var(--dayan-primary-height,100vh) * .07),90px) 24px 16px;
+  flex:none;justify-content:flex-start;container-type:inline-size;
+}
+html[data-fullscreen="true"] #simple-timers .timer.designed > .display { justify-content:flex-start; }
+html[data-fullscreen="true"] #simple-timers .designed .artwork { flex:0 0 min(40%,440px);min-height:110px; }
+html[data-fullscreen="true"] #simple-timers .orbit > .display { display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:min(var(--dayan-primary-height,100vh) * .4,70cqw,520px) auto auto auto;align-content:start;justify-items:center;--orbit-size:min(var(--dayan-primary-height,100vh) * .4,70cqw,520px); }
+html[data-fullscreen="true"] #simple-timers .orbit .ring,html[data-fullscreen="true"] #simple-timers .orbit .marker { grid-area:1/1;position:relative;top:auto;left:auto;margin:0;width:var(--orbit-size);height:var(--orbit-size);align-self:center; }
+html[data-fullscreen="true"] #simple-timers .orbit .ring { transform:rotate(-90deg); }
+html[data-fullscreen="true"] #simple-timers .orbit .readout { grid-area:1/1;align-self:center;font-size:56px; }
+html[data-fullscreen="true"] #simple-timers .orbit .date { grid-area:2/1; }
+html[data-fullscreen="true"] #simple-timers .orbit .almanac { grid-area:3/1; }
+html[data-fullscreen="true"] #simple-timers .orbit .unlock-launch { grid-area:4/1; }
+html[data-fullscreen="true"] #simple-timers .almanac { max-width:100%; }
