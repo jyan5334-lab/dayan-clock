@@ -34,6 +34,7 @@
   const settingsPanels = [...document.querySelectorAll('[data-settings-panel]')];
   const settingsFooters = [...document.querySelectorAll('[data-settings-footer]')];
   const showAlmanac = document.getElementById('show-almanac');
+  const showClockDate = document.getElementById('show-clock-date');
   const modeVisibility = [...document.querySelectorAll('[data-mode-visibility]')];
   const autoStart = document.getElementById('auto-start');
   const autoStartStatus = document.getElementById('auto-start-status');
@@ -44,7 +45,7 @@
   let policyRequest, policyBusy = false, lastPolicy, returnToSettings = false;
   let chromeTimer;
   let style = 1, widget;
-  let displaySettings = { showAlmanac: true, modes: { clock: false, watch: true, down: true, up: true } };
+  let displaySettings = { showAlmanac: true, showClockDate: true, modes: { clock: false, watch: true, down: true, up: true } };
   let autoStartEnabled = true;
   let windowLayers = { unlocked: 'top', locked: 'top', displayScope: 'current' };
   let security = { passwordConfigured: false, locked: false };
@@ -131,7 +132,7 @@
   };
   const normalizeDisplaySettings = value => {
     const modes = value?.modes && typeof value.modes === 'object' ? value.modes : {};
-    return { showAlmanac: value?.showAlmanac !== false, modes: { clock: modes.clock === true, watch: modes.watch !== false, down: modes.down !== false, up: modes.up !== false } };
+    return { showAlmanac: value?.showAlmanac !== false, showClockDate: value?.showClockDate !== false, modes: { clock: modes.clock === true, watch: modes.watch !== false, down: modes.down !== false, up: modes.up !== false } };
   };
   const selectSettingsTab = name => {
     const selected = settingsTabs.some(tab => tab.dataset.settingsTab === name) ? name : 'policy';
@@ -142,6 +143,7 @@
   const syncDisplaySettings = () => {
     window.dayanDisplaySettings = displaySettings;
     showAlmanac.checked = displaySettings.showAlmanac;
+    showClockDate.checked = displaySettings.showClockDate;
     modeVisibility.forEach(input => { input.checked = displaySettings.modes[input.dataset.modeVisibility] !== false; });
     document.getElementById('simple-timers').dispatchEvent(new CustomEvent('dayan:display-settings', { detail: displaySettings }));
   };
@@ -327,6 +329,7 @@
   settingsClose.addEventListener('click', closeSettings);
   settingsTabs.forEach(tab => tab.addEventListener('click', () => { selectSettingsTab(tab.dataset.settingsTab); if (tab.dataset.settingsTab === 'policy') refreshPolicy(); }));
   showAlmanac.addEventListener('change', () => { displaySettings = { ...displaySettings, showAlmanac: showAlmanac.checked }; syncDisplaySettings(); save(); });
+  showClockDate.addEventListener('change', () => { displaySettings = { ...displaySettings, showClockDate: showClockDate.checked }; syncDisplaySettings(); save(); });
   modeVisibility.forEach(input => input.addEventListener('change', () => { displaySettings = { ...displaySettings, modes: { ...displaySettings.modes, [input.dataset.modeVisibility]: input.checked } }; syncDisplaySettings(); save(); }));
   windowLayerInputs.forEach(input => input.addEventListener('change', () => {
     windowLayers = { ...windowLayers, [input.dataset.windowLayer || 'displayScope']: input.value };

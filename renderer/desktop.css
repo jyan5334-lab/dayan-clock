@@ -255,3 +255,5 @@ html[data-fullscreen="true"] #simple-timers .orbit .date { grid-area:2/1; }
 html[data-fullscreen="true"] #simple-timers .orbit .almanac { grid-area:3/1; }
 html[data-fullscreen="true"] #simple-timers .orbit .unlock-launch { grid-area:4/1; }
 html[data-fullscreen="true"] #simple-timers .almanac { max-width:100%; }
+#simple-timers .clock-content-hidden .display > :is(.readout,.date,.ring,.marker,.artwork) { display:none!important; }
+html[data-fullscreen="true"] #simple-timers .orbit.clock-content-hidden > .display { display:flex; }

@@ -61,8 +61,11 @@ let browser, desktop;
       await adapted.setViewportSize({ width, height });
       await animation.waitForFunction(() => {
         const box = document.querySelector('body > svg').getBoundingClientRect();
+        const sky = document.querySelector('[data-extension-sky]').getBoundingClientRect();
         const expected = Math.min(innerWidth / 800, innerHeight / 500);
-        return Math.abs(box.width - 800 * expected) < .1 && Math.abs(box.height - 500 * expected) < .1;
+        return Math.abs(box.width - 800 * expected) < .1 && Math.abs(box.height - 500 * expected) < .1
+          && Math.abs(box.bottom - innerHeight) < .1 && Math.abs(box.x - (innerWidth - box.width) / 2) < .1
+          && sky.x <= .1 && sky.y <= .1 && sky.right >= innerWidth - .1 && sky.bottom >= innerHeight - .1;
       }, null, { polling: 50 });
       const box = await animation.locator('[data-extension-sky]').boundingBox();
       assert.ok(box.x <= .1 && box.y <= .1 && box.x + box.width >= width - .1 && box.y + box.height >= height - .1, `Extended scenery does not cover ${width}x${height}: ${JSON.stringify(box)}`);

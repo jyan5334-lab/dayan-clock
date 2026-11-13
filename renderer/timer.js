@@ -14,7 +14,7 @@
   }
   const models=[];let sharedState;
   let lastSave='';
-  let displaySettings=window.dayanDisplaySettings||{showAlmanac:true,modes:{clock:false,watch:true,down:true,up:true}};
+  let displaySettings=window.dayanDisplaySettings||{showAlmanac:true,showClockDate:true,modes:{clock:false,watch:true,down:true,up:true}};
   const pad=n=>String(n).padStart(2,'0');
   const icon=name=>`<i data-lucide="${name}" aria-hidden="true"></i>`;
   const refresh=()=>{if(globalThis.lucide)globalThis.lucide.createIcons({attrs:{width:16,height:16}});};
@@ -113,7 +113,8 @@
       q('.fraction').hidden=s.clock||s.mode!=='watch';q('.fraction').textContent='.'+pad(Math.floor(value/10)%100);
       const ended=s.mode==='down'&&total>=s.target;
       app.classList.toggle('ended',ended&&!s.clock);
-      q('.date').hidden=!s.clock;
+      app.classList.toggle('clock-content-hidden',s.clock&&displaySettings.showClockDate===false);
+      q('.date').hidden=!s.clock||displaySettings.showClockDate===false;
       if(s.clock){
         const year=now.getFullYear(),month=pad(now.getMonth()+1),day=pad(now.getDate());
         const weekdays=['日','一','二','三','四','五','六'];

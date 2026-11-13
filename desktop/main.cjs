@@ -24,7 +24,7 @@ if (updateMode.test) app.setPath('userData', process.env.DAYAN_TEST_DATA);
 const PASSWORD_ITERATIONS = 210000;
 const UPDATE_REPOSITORY_API = 'https://api.github.com/repos/jyan5334-lab/dayan-clock/releases/latest';
 const UPDATE_PUBLIC_MANIFEST = 'https://github.com/jyan5334-lab/dayan-clock/releases/latest/download/update.json';
-const DEFAULT_DISPLAY_SETTINGS = Object.freeze({ showAlmanac: true, modes: Object.freeze({ clock: false, watch: true, down: true, up: true }) });
+const DEFAULT_DISPLAY_SETTINGS = Object.freeze({ showAlmanac: true, showClockDate: true, modes: Object.freeze({ clock: false, watch: true, down: true, up: true }) });
 let mainWindow, tray, trayMenu, state = {}, resizeSession, saveTimer, securityLocked = false, quitting = false, openedAtLogin = false, trayActionBusy = false, desktopReconcileTimer, trayReconcileInterval;
 let windowedBounds, presentationRequested = false, restoringBounds = false, restoreBoundsTimer, desktopWindowHosted = false;
 let presentationDisplayId;
@@ -37,7 +37,7 @@ const stateFile = () => path.join(app.getPath('userData'), 'preferences.json');
 
 function normalizeDisplaySettings(value) {
   const modes = value?.modes && typeof value.modes === 'object' ? value.modes : {};
-  return { showAlmanac: value?.showAlmanac !== false, modes: { clock: modes.clock === true, watch: modes.watch !== false, down: modes.down !== false, up: modes.up !== false } };
+  return { showAlmanac: value?.showAlmanac !== false, showClockDate: value?.showClockDate !== false, modes: { clock: modes.clock === true, watch: modes.watch !== false, down: modes.down !== false, up: modes.up !== false } };
 }
 
 function normalizeWindowLayers(value) {

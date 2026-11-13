@@ -17,6 +17,7 @@
     "test:dynamic-backgrounds": "node tools/check-dynamic-backgrounds.cjs",
     "test:keyboard": "node desktop/build-update-host.cjs && node tools/check-keyboard-guard.cjs",
     "test:unlock-layout": "node tools/check-unlock-layout.cjs",
+    "test:display-settings": "node tools/check-display-settings.cjs",
     "test:policy-restore": "node tools/check-policy-restore.cjs",
     "test:policy-ui": "node tools/check-policy-ui.cjs",
     "start": "node desktop/build-update-host.cjs && electron .",
