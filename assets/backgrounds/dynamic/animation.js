@@ -5,12 +5,16 @@
   };
   const scene = scenes[new URLSearchParams(location.search).get('scene')] || scenes['pelican-bike'];
   const frame = document.querySelector('iframe');
-  let sourceSize;
+  let sourceSize, sceneStyle, extendScene;
   const fitScene = () => {
     if (!sourceSize) return;
-    const scale = Math.max(document.documentElement.clientWidth / sourceSize.width, document.documentElement.clientHeight / sourceSize.height);
-    frame.style.width = `${sourceSize.width * scale}px`;
-    frame.style.height = `${sourceSize.height * scale}px`;
+    const width = document.documentElement.clientWidth, height = document.documentElement.clientHeight;
+    if (!width || !height) return;
+    const scale = Math.min(width / sourceSize.width, height / sourceSize.height);
+    const worldWidth = width / scale, worldHeight = height / scale;
+    Object.assign(sceneStyle, { width: `${sourceSize.width * scale}px`, height: `${sourceSize.height * scale}px`, left: `${(width - sourceSize.width * scale) / 2}px`, top: `${height - sourceSize.height * scale}px` });
+    const x = (sourceSize.width - worldWidth) / 2, y = sourceSize.height - worldHeight;
+    extendScene({ x, y, width: worldWidth, height: worldHeight, right: x + worldWidth, bottom: y + worldHeight });
   };
   new ResizeObserver(fitScene).observe(document.documentElement);
   frame.title = scene.title;
@@ -25,12 +29,15 @@
       html,body { width:100%;height:100%;margin:0!important;overflow:hidden!important; }
       body { display:block!important; }
       body > h1,body > .sub,body > .ctrl { display:none!important; }
-      body > svg { display:block;width:100%!important;height:100%!important;max-width:none!important;border-radius:0!important;box-shadow:none!important; }
+      [data-scene-extension] > svg { display:block;width:100%!important;height:100%!important;max-width:none!important;border-radius:0!important;box-shadow:none!important; }
+      body > svg { position:absolute;display:block;max-width:none!important;border-radius:0!important;box-shadow:none!important; }
     `;
     doc.head.append(style);
-    // Cover the host viewport outside the original document so its animation stays untouched.
+    // Contain the entire original scene and extend scenery around it without cropping artwork.
     const viewBox = svg.viewBox.baseVal;
     sourceSize = { width: viewBox.width, height: viewBox.height };
+    sceneStyle = style.sheet.cssRules[style.sheet.cssRules.length - 1].style;
+    extendScene = window.createSceneExtension(doc, svg, scene.file.includes('seaside'));
     fitScene();
     document.documentElement.dataset.ready = 'true';
   });

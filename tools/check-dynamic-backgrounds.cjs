@@ -36,13 +36,22 @@ let browser, desktop;
     const animation = adapted.frames().find(frame => frame.url().endsWith('/originals/' + scene.file));
     assert.ok(animation);
     let previous;
-    for (const time of [0, 16.67, 33.34, 1000, 1016.67]) {
+    const times = [0, 16.67, 33.34, ...Array.from({ length: 90 }, (_, index) => 50.01 + index * 50.01)];
+    for (const time of times) {
       for (const frame of [source, animation]) await frame.evaluate(time => window.stepAnimation(time), time);
       const actual = await animation.locator('body > svg').evaluate(svg => svg.outerHTML);
       assert.equal(actual, await source.locator('body > svg').evaluate(svg => svg.outerHTML), `${scene.id}: SVG changed at ${time}`);
       if (previous && time > 0) assert.notEqual(actual, previous, 'Animation must advance');
+      const clipped = await animation.locator('#pelican, #wheelR, #wheelF').evaluateAll(nodes => nodes.some(node => {
+        const box = node.getBoundingClientRect();
+        return box.left < 0 || box.top < 0 || box.right > innerWidth || box.bottom > innerHeight;
+      }));
+      assert.equal(clipped, false, `${scene.id}: subject clipped during animation at ${time}`);
       previous = actual;
     }
+    const road = scene.id === 'pelican-bike' ? '#road' : '#waves line';
+    const extendedRoad = await animation.locator('[data-scene-extension] line[stroke-dasharray]').first().getAttribute('stroke-dashoffset');
+    assert.equal(extendedRoad, await animation.locator(road).first().getAttribute('stroke-dashoffset'), 'Extended road/waves must follow the original animation phase');
     assert.equal(await animation.locator('body > h1').isVisible(), false);
     assert.equal(await animation.locator('.ctrl').isVisible(), false);
     await adapted.screenshot({ path: path.join(output, `preview-${scene.id}.png`) });
@@ -50,15 +59,21 @@ let browser, desktop;
     const coverage = [];
     for (const [width, height] of [[800, 600], [1920, 1080], [1920, 1200], [3440, 1440], [5120, 1440], [1080, 1920], [800, 500]]) {
       await adapted.setViewportSize({ width, height });
-      await adapted.waitForFunction(() => {
-        const box = document.querySelector('iframe').getBoundingClientRect();
-        return box.width >= innerWidth - .1 && box.height >= innerHeight - .1 && Math.abs(box.width / box.height - 800 / 500) < .001;
+      await animation.waitForFunction(() => {
+        const box = document.querySelector('body > svg').getBoundingClientRect();
+        const expected = Math.min(innerWidth / 800, innerHeight / 500);
+        return Math.abs(box.width - 800 * expected) < .1 && Math.abs(box.height - 500 * expected) < .1;
       }, null, { polling: 50 });
-      const box = await animation.locator('body > svg > rect').first().boundingBox();
-      assert.ok(box.x <= .1 && box.y <= .1 && box.x + box.width >= width - .1 && box.y + box.height >= height - .1, `Actual painted scene does not cover ${width}x${height}: ${JSON.stringify(box)}`);
+      const box = await animation.locator('[data-extension-sky]').boundingBox();
+      assert.ok(box.x <= .1 && box.y <= .1 && box.x + box.width >= width - .1 && box.y + box.height >= height - .1, `Extended scenery does not cover ${width}x${height}: ${JSON.stringify(box)}`);
+      const subjects = await animation.locator('body > svg > circle, #pelican, #wheelR, #wheelF').evaluateAll(nodes => nodes.map(node => {
+        const rect = node.getBoundingClientRect(); return { id: node.id || 'sun', x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom };
+      }));
+      assert.equal(subjects.length, 4);
+      for (const subject of subjects) assert.ok(subject.x >= 0 && subject.y >= 0 && subject.right <= width && subject.bottom <= height, `Cropped subject at ${width}x${height}: ${JSON.stringify(subject)}`);
       const scale = await animation.locator('body > svg').evaluate(svg => { const m = svg.getScreenCTM(); return { x: m.a, y: m.d }; });
       assert.ok(Math.abs(scale.x - scale.y) < .001, 'Artwork must not stretch');
-      assert.equal(await animation.locator('svg').getAttribute('viewBox'), '0 0 800 500');
+      assert.equal(await animation.locator('body > svg').getAttribute('viewBox'), '0 0 800 500');
       const screenshot = await adapted.screenshot({ path: path.join(output, `${scene.id}-${width}x${height}.png`) });
       const edges = await pixelReader.evaluate(async ({ png, bars }) => {
         const image = new Image(); image.src = `data:image/png;base64,${png}`; await image.decode();
@@ -76,10 +91,10 @@ let browser, desktop;
       }, { png: screenshot.toString('base64'), bars: scene.oldBars });
       assert.equal(edges.oldBarPixels, 0, `${scene.id}: original demo background is exposed at the screen edges`);
       assert.equal(edges.transparentPixels, 0);
-      coverage.push({ width, height, painted: box, scale, edges });
+      coverage.push({ width, height, painted: box, scale, subjects, edges });
     }
     assert.equal(await animation.locator('body > svg').evaluate(svg => svg.outerHTML), previous, 'Resize must preserve the running animation document');
-    results.push({ scene: scene.id, originalSvgIdentical: true, animationAdvances: true, coverage });
+    results.push({ scene: scene.id, originalSvgIdentical: true, animationAdvances: true, animationFramesChecked: times.length, coverage });
     await source.close(); await adapted.close();
   }
   await browser.close(); browser = null;
@@ -114,6 +129,7 @@ let browser, desktop;
   const layouts = [
     { scope: 'all', area: { x: -1920, y: -1080, width: 5360, height: 2520 }, content: { x: 0, y: 0, width: 3440, height: 1440 }, displays: [{ id: 1, scaleFactor: 1.5, bounds: { x: 0, y: 0, width: 3440, height: 1440 } }, { id: 2, scaleFactor: 1, bounds: { x: -1920, y: -1080, width: 1920, height: 1080 } }] },
     { scope: 'all', area: { x: -1080, y: -1200, width: 3640, height: 3120 }, content: { x: 0, y: 0, width: 2560, height: 1440 }, displays: [{ id: 1, scaleFactor: 1.5, bounds: { x: 0, y: 0, width: 2560, height: 1440 } }, { id: 2, scaleFactor: 1, bounds: { x: -1080, y: 0, width: 1080, height: 1920 } }, { id: 3, scaleFactor: 2, bounds: { x: 0, y: -1200, width: 1920, height: 1200 } }] },
+    { scope: 'all', area: { x: -1080, y: -900, width: 4280, height: 2820 }, content: { x: 0, y: 0, width: 1920, height: 1080 }, displays: [{ id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 } }, { id: 2, bounds: { x: -1080, y: 0, width: 1080, height: 1920 } }, { id: 3, bounds: { x: 0, y: -900, width: 1600, height: 900 } }, { id: 4, bounds: { x: 1920, y: 0, width: 1280, height: 1024 } }] },
     null
   ];
   const multiDisplayChecks = [];
@@ -140,7 +156,12 @@ let browser, desktop;
       } else if (scenes.some(scene => scene.id === item.id)) {
         for (const handle of await active.locator('.wallpaper-media > iframe').elementHandles()) {
           const adapter = await handle.contentFrame(); await adapter.waitForSelector('html[data-ready=true]');
-          await adapter.waitForFunction(() => { const rect = document.querySelector('iframe').getBoundingClientRect(); return rect.left <= .1 && rect.top <= .1 && rect.right >= innerWidth - .1 && rect.bottom >= innerHeight - .1; });
+          const original = adapter.childFrames().find(frame => frame.url().includes('/originals/'));
+          await original.waitForFunction(() => {
+            const rect = document.querySelector('body > svg').getBoundingClientRect();
+            const scene = document.querySelector('[data-extension-sky]').getBoundingClientRect();
+            return rect.left >= -.1 && rect.top >= -.1 && rect.right <= innerWidth + .1 && rect.bottom <= innerHeight + .1 && scene.left <= .1 && scene.top <= .1 && scene.right >= innerWidth - .1 && scene.bottom >= innerHeight - .1;
+          });
         }
       }
       multiDisplayChecks.push({ id: item.id, displays: tiles.length, tiles });

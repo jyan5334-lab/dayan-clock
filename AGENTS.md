@@ -5,7 +5,10 @@ Before adding or changing any static image, video or HTML wallpaper, read
 
 - Every wallpaper must fill each display independently in both single-display
   and multi-display fullscreen, including mixed resolutions, scaling and portrait
-  displays. Use proportional cover; do not introduce bars or stretch artwork.
+  displays. Preserve complete subjects and composition without cropping or
+  stretching. For code-based scenes, contain the original artwork and extend
+  sky, landscape and ground into the extra viewport area; do not use cover to
+  hide missing scenery. Do not introduce bars.
 - A full-size iframe is insufficient if its internal scene still letterboxes.
   Adapt that scene too, without changing user-supplied original animation files.
 - Keep clock, calendar and almanac content on the system primary display.
