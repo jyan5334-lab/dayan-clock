@@ -1,5 +1,20 @@
 # 壁纸素材说明
 
+## 原创骑行动画
+
+1.6.22 在背景选择器中新增“动态背景”分类，提供两款本地 SVG 动画：
+
+![鹈鹕骑行](../assets/backgrounds/dynamic/preview-pelican-bike.png)
+
+![海边日落骑行](../assets/backgrounds/dynamic/preview-pelican-seaside.png)
+
+用户提供的 HTML 保存在 `assets/backgrounds/dynamic/originals/`，内容逐字节保留，SHA-256 记录于 `originals.json`。外层适配文件只隐藏演示页标题、控件和卡片边框，动画 SVG、脚本、颜色、元素及默认速度保持原样。
+画面保持原始 800:500 的比例，宽高由所在显示器自适应，留白沿用原场景底色，避免拉伸或裁切角色。全部显示器模式按系统屏幕坐标分别铺设，时钟内容仍限于主屏。
+
+`npm run test:dynamic-backgrounds` 比较原版与嵌入版在固定时刻的完整 SVG，复核运动持续、预览、选择保存、横屏/竖屏/超宽屏以及多屏坐标。
+
+## 静态背景
+
 1.4.1 将新生成的十个主题加入右下角背景选择面板，连同原有十张共二十张。所有文件随安装包提供，断网可用，选择会自动保存。面板高度随窗口约束，缩略图列表可滚动。
 
 ![程序中的壁纸选择面板](screenshots/wallpaper-picker.png)

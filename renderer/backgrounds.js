@@ -138,5 +138,23 @@ window.timerBackgrounds = [
     "kind": "html",
     "src": "assets/backgrounds/hacker/hacker-wallpaper.html?skin=violet&embed=1&quiet=1",
     "thumb": "assets/backgrounds/hacker/preview-violet.png"
+  },
+  {
+    "id": "pelican-bike",
+    "label": "鹈鹕骑行",
+    "group": "动态背景",
+    "kind": "html",
+    "perDisplay": true,
+    "src": "assets/backgrounds/dynamic/animation.html?scene=pelican-bike",
+    "thumb": "assets/backgrounds/dynamic/preview-pelican-bike.png"
+  },
+  {
+    "id": "pelican-seaside",
+    "label": "海边日落骑行",
+    "group": "动态背景",
+    "kind": "html",
+    "perDisplay": true,
+    "src": "assets/backgrounds/dynamic/animation.html?scene=pelican-seaside",
+    "thumb": "assets/backgrounds/dynamic/preview-pelican-seaside.png"
   }
 ].map(item => ({ ...item, src: new URL(item.src, document.baseURI).href, thumb: item.thumb ? new URL(item.thumb, document.baseURI).href : undefined }));

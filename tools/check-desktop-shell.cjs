@@ -4,8 +4,8 @@ const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const { _electron } = require(process.env.DAYAN_PLAYWRIGHT_MODULE || 'playwright');
 const root = path.resolve(__dirname, '..');
-fs.mkdirSync(path.join(root, 'work'), { recursive:true });
-const testDir = fs.mkdtempSync(path.join(root, 'work/shell-'));
+fs.mkdirSync('D:/Codex/Temp', { recursive:true });
+const testDir = fs.mkdtempSync('D:/Codex/Temp/dayan-shell-');
 const data = path.join(testDir, 'data');
 fs.mkdirSync(data);
 fs.writeFileSync(path.join(data,'preferences.json'),JSON.stringify({settingsGuideVersion:1,style:1,windowLayers:{unlocked:'bottom',locked:'top'},bounds:{x:50,y:50,width:800,height:568}}));
@@ -46,7 +46,7 @@ async function checkVisibleBounds(page,hwnd,expected,label){
   geometry.push({label,expected,client:target.client,viewport});
 }
 (async()=>{
-  desktop=await _electron.launch({executablePath:packaged?path.join(root,'release/win-unpacked/DAYANClock.exe'):require(path.join(root,'node_modules/electron')),args:packaged?[]:[root],env});
+  desktop=await _electron.launch({executablePath:packaged?path.join(process.env.DAYAN_RELEASE_DIR||path.join(root,'release'),'win-unpacked/DAYANClock.exe'):require(path.join(root,'node_modules/electron')),args:packaged?[]:[root],env});
   desktop.process().stderr.on('data',chunk=>fs.appendFileSync(path.join(testDir,'app.log'),chunk));
   const page=await desktop.firstWindow();
   page.on('pageerror',error=>errors.push(error.message));

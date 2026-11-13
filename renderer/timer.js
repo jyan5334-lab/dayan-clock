@@ -18,7 +18,9 @@
   const pad=n=>String(n).padStart(2,'0');
   const icon=name=>`<i data-lucide="${name}" aria-hidden="true"></i>`;
   const refresh=()=>{if(globalThis.lucide)globalThis.lucide.createIcons({attrs:{width:16,height:16}});};
+  let presentationLayout=window.dayanPresentationLayout;
   const syncPresentationLayout=layout=>{
+    presentationLayout=layout;
     const all=layout?.scope==='all'&&layout.area&&layout.content;
     root.classList.toggle('presentation-all',Boolean(all));
     if(!all){
@@ -53,23 +55,36 @@
     q('.brand span').textContent='DAYAN桌面';
     ['clock','watch','down','up'].forEach(mode=>q('.modes').append(q(`[data-mode="${mode}"]`)));
     const artwork=window.dayanStyles.attach(app,variants[i]);
-    let lastDisplay='',lastAction='',lastStatus='',lastBackground=null;
+    let lastDisplay='',lastAction='',lastStatus='',lastBackground=null,lastMediaLayout=null;
     function closeBackgrounds(){q('.background-picker').hidden=true;q('.background-toggle').setAttribute('aria-expanded','false');}
     function render() {
       const now=new Date();if(!s.running&&document.activeElement!==q('.minutes')&&document.activeElement!==q('.seconds')){q('.minutes').value=Math.floor(s.target/60000);q('.seconds').value=Math.floor(s.target/1000)%60;}
-      if(lastBackground!==s.background){
-        const background=backgrounds.find(b=>b.id===s.background);
+      const background=backgrounds.find(b=>b.id===s.background);
+      const displayTiles=background?.perDisplay&&presentationLayout?.scope==='all'&&presentationLayout.displays?.length?presentationLayout.displays:null;
+      const mediaLayout=displayTiles?JSON.stringify({area:presentationLayout.area,displays:displayTiles}):'';
+      if(lastBackground!==s.background||lastMediaLayout!==mediaLayout){
         app.classList.toggle('has-background',Boolean(background));
+        app.classList.toggle('has-original-motion-background',Boolean(background?.perDisplay));
         app.style.setProperty('--wallpaper',background&&background.kind!=='video'?`url("${background.src}")`:'none');
         const media=q('.wallpaper-media');
         media.replaceChildren();
         if(background?.kind==='video'){
           const video=document.createElement('video');video.src=background.src;video.autoplay=true;video.loop=true;video.muted=true;video.playsInline=true;media.append(video);app.classList.add('has-motion-background');
         }else if(background?.kind==='html'){
-          const frame=document.createElement('iframe');frame.src=background.src;frame.title=background.label;frame.tabIndex=-1;frame.setAttribute('aria-hidden','true');frame.setAttribute('loading','eager');media.append(frame);app.classList.add('has-motion-background');
+          for(const display of displayTiles||[null]){
+            const frame=document.createElement('iframe');frame.src=background.src;frame.title=background.label;frame.tabIndex=-1;frame.setAttribute('aria-hidden','true');frame.setAttribute('loading','eager');
+            if(display){
+              const bounds=display.bounds,area=presentationLayout.area;
+              Object.assign(frame.style,{position:'absolute',left:`${bounds.x-area.x}px`,top:`${bounds.y-area.y}px`,width:`${bounds.width}px`,height:`${bounds.height}px`});
+              frame.dataset.display=display.id;
+            }
+            media.append(frame);
+          }
+          app.classList.add('has-motion-background');
         }else app.classList.remove('has-motion-background');
         app.querySelectorAll('[data-background]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.background===s.background)));
         lastBackground=s.background;
+        lastMediaLayout=mediaLayout;
       }
       let total=current(s);
       if(s.running&&s.mode==='down'&&total>=s.target) {s.elapsed=s.target;s.running=false;total=s.target;save();}

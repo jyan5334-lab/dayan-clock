@@ -612,6 +612,7 @@ function presentationLayout() {
     scope: layers.displayScope,
     area: { ...area.bounds },
     content: { ...contentDisplay.bounds },
+    displays: screen.getAllDisplays().map(display => ({ id: display.id, bounds: { ...display.bounds } })),
     primaryDisplayId: screen.getPrimaryDisplay().id
   };
 }
@@ -929,8 +930,7 @@ function createWindow() {
         preparePresentation();
         Promise.resolve(applyPresentationWindow()).then(() => {
           if (!mainWindow || mainWindow.isDestroyed()) return;
-          mainWindow.show();
-          if (!desktopWindowHosted) mainWindow.focus();
+          if (!desktopWindowHosted) { mainWindow.show(); mainWindow.focus(); }
           notify();
         }).catch(error => console.error('Unable to restore presentation at login:', error.message));
       }, 220);

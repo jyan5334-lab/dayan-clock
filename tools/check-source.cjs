@@ -20,7 +20,7 @@ for (const relative of ['index.html', 'desktop/main.cjs', 'desktop/preload.cjs',
 const context = { window: {}, document: { baseURI: pathToFileURL(path.join(root, 'index.html')).href }, URL };
 vm.runInNewContext(read('renderer/backgrounds.js'), context);
 const backgrounds = context.window.timerBackgrounds;
-assert.equal(backgrounds.length, 25, 'Expected twenty-five bundled wallpapers');
+assert.equal(backgrounds.length, 27, 'Expected twenty-seven bundled wallpapers');
 assert.equal(new Set(backgrounds.map(item => item.id)).size, backgrounds.length);
 for (const item of backgrounds) {
   assert.match(item.id, /^[a-z-]+$/);
@@ -28,7 +28,7 @@ for (const item of backgrounds) {
   assert.ok(file.startsWith(path.join(root, 'assets/backgrounds') + path.sep), 'Wallpaper escapes asset directory');
   const image = fs.readFileSync(file);
   if (path.extname(file) === '.html') {
-    assert.match(image.toString('utf8'), /requestAnimationFrame/);
+    assert.match(image.toString('utf8'), /requestAnimationFrame|src="animation.js"/);
     assert.equal(item.kind, 'html');
     assert.ok(item.thumb && fs.existsSync(fileURLToPath(item.thumb)), `Missing preview for ${item.id}`);
   } else if (path.extname(file) === '.png') {
@@ -37,6 +37,12 @@ for (const item of backgrounds) {
     assert.equal(image.toString('ascii', 0, 4), 'RIFF');
     assert.equal(image.toString('ascii', 8, 12), 'WEBP');
   }
+}
+const dynamicManifest = JSON.parse(read('assets/backgrounds/dynamic/originals.json'));
+for (const item of dynamicManifest.files) {
+  const original = fs.readFileSync(path.join(root, 'assets/backgrounds/dynamic/originals', item.file));
+  assert.equal(crypto.createHash('sha256').update(original).digest('hex'), item.sha256, `Original animation changed: ${item.file}`);
+  assert.match(original.toString('utf8'), /requestAnimationFrame/);
 }
 const wallpaperManifest = JSON.parse(read('assets/backgrounds-20261028.json'));
 assert.equal(wallpaperManifest.images.length, 10);

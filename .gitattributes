@@ -12,3 +12,4 @@
 *.webp binary
 *.exe binary
 *.zip binary
+assets/backgrounds/dynamic/originals/*.html -text

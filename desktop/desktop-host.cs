@@ -29,12 +29,36 @@ internal static class DesktopHost {
   [DllImport("user32.dll")] private static extern IntPtr GetWindowDpiAwarenessContext(IntPtr hwnd);
   [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
   [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr hwnd, uint command);
+  [DllImport("user32.dll", SetLastError = true)] private static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint color, byte alpha, uint flags);
+  [DllImport("user32.dll")] private static extern int GetWindowRgn(IntPtr hwnd, IntPtr region);
+  [DllImport("gdi32.dll")] private static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+  [DllImport("gdi32.dll")] private static extern int GetRgnBox(IntPtr region, out Rect rect);
+  [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr value);
   private static string Class(IntPtr hwnd) { var text = new StringBuilder(256); GetClassName(hwnd, text, text.Capacity); return text.ToString(); }
   private static object Describe(IntPtr hwnd) {
     Rect rect; GetWindowRect(hwnd, out rect);
     Rect client; GetClientRect(hwnd, out client);
     var origin = new Point(); MapWindowPoints(hwnd, IntPtr.Zero, ref origin, 1);
-    return new { handle = hwnd.ToInt64().ToString(), parent = GetParent(hwnd).ToInt64().ToString(), cls = Class(hwnd), visible = IsWindowVisible(hwnd), x = rect.Left, y = rect.Top, width = rect.Right - rect.Left, height = rect.Bottom - rect.Top, client = new { x = origin.X, y = origin.Y, width = client.Right - client.Left, height = client.Bottom - client.Top } };
+    var region = CreateRectRgn(0, 0, 0, 0); Rect clip;
+    int regionType = GetWindowRgn(hwnd, region); GetRgnBox(region, out clip); DeleteObject(region);
+    return new { handle = hwnd.ToInt64().ToString(), parent = GetParent(hwnd).ToInt64().ToString(), cls = Class(hwnd), visible = IsWindowVisible(hwnd), style = GetStyle(hwnd, -16).ToInt64().ToString(), extendedStyle = GetStyle(hwnd, -20).ToInt64().ToString(), regionType = regionType, region = new { x = clip.Left, y = clip.Top, width = clip.Right - clip.Left, height = clip.Bottom - clip.Top }, x = rect.Left, y = rect.Top, width = rect.Right - rect.Left, height = rect.Bottom - rect.Top, client = new { x = origin.X, y = origin.Y, width = client.Right - client.Left, height = client.Bottom - client.Top } };
+  }
+  private static void EnsureDesktopLayers(IntPtr hwnd, IntPtr parent, IntPtr view) {
+    if (parent != GetParent(view)) return;
+    // Raised desktops use a no-redirection Progman and a layered icon view.
+    // The wallpaper must also be layered or Explorer can cover its lower area.
+    if ((GetStyle(parent, -20).ToInt64() & 0x00200000L) != 0) {
+      long extended = GetStyle(hwnd, -20).ToInt64();
+      if ((extended & 0x00080000L) == 0) {
+        SetStyle(hwnd, -20, new IntPtr(extended | 0x00080000L));
+        if (!SetLayeredWindowAttributes(hwnd, 0, 255, 2)) throw new Exception("Desktop composition failed.");
+      }
+    }
+    var worker = FindWindowEx(parent, IntPtr.Zero, "WorkerW", null);
+    if (worker != IntPtr.Zero && GetWindow(worker, 2) != IntPtr.Zero)
+      SetWindowPos(worker, new IntPtr(1), 0, 0, 0, 0, 0x01 | 0x02 | 0x10);
+    if (GetWindow(view, 3) != IntPtr.Zero)
+      SetWindowPos(view, IntPtr.Zero, 0, 0, 0, 0, 0x01 | 0x02 | 0x10);
   }
   private static IntPtr IconsRoot(out IntPtr view) {
     IntPtr root = IntPtr.Zero, found = IntPtr.Zero;
@@ -97,6 +121,7 @@ internal static class DesktopHost {
             var origin = new Point { X = rect.Left, Y = rect.Top };
             MapWindowPoints(IntPtr.Zero, parent, ref origin, 1);
             if (!SetWindowPos(hwnd, after, origin.X, origin.Y, rect.Right - rect.Left, rect.Bottom - rect.Top, 0x10 | 0x20 | 0x40)) throw new Exception("Desktop positioning failed.");
+            EnsureDesktopLayers(hwnd, parent, view);
           } catch {
             SetStyle(hwnd, -16, new IntPtr(style)); SetStyle(hwnd, -20, new IntPtr(extended));
             SetParent(hwnd, previousParent);
@@ -108,8 +133,10 @@ internal static class DesktopHost {
           if (parent == IntPtr.Zero || parent.ToInt64().ToString() != args[7]) throw new Exception("Desktop parent changed; reopen desktop mode.");
           var origin = new Point { X = int.Parse(args[3]), Y = int.Parse(args[4]) };
           MapWindowPoints(IntPtr.Zero, parent, ref origin, 1);
-          var after = args.Length > 8 ? new IntPtr(long.Parse(args[8])) : IntPtr.Zero;
-          if (!SetWindowPos(hwnd, after, origin.X, origin.Y, int.Parse(args[5]), int.Parse(args[6]), 0x10 | 0x20 | 0x40)) throw new Exception("Desktop resizing failed.");
+          IntPtr view; var root = IconsRoot(out view);
+          var after = parent == root ? view : IntPtr.Zero;
+          if (!SetWindowPos(hwnd, after, origin.X, origin.Y, int.Parse(args[5]), int.Parse(args[6]), 0x10 | 0x40)) throw new Exception("Desktop resizing failed.");
+          EnsureDesktopLayers(hwnd, parent, view);
           output = new { ok = true, window = Describe(hwnd) };
         } else if (args[0] == "detach") {
           SetStyle(hwnd, -16, new IntPtr(long.Parse(args[3])));

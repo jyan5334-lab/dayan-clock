@@ -1,0 +1,7 @@
+{
+  "description": "User supplied original animations. Source HTML, SVG, scripts and speed defaults are preserved byte for byte.",
+  "files": [
+    { "file": "pelican_bike.html", "sha256": "e325811c0652efeddaea3547fc2c008830cfec66146d0a0d259315d9ac41256f" },
+    { "file": "pelican_bike_seaside.html", "sha256": "0f0ee61f720fc6b68c595de44a90d94104889db56e45f60b52b7dcfdd7540ba9" }
+  ]
+}

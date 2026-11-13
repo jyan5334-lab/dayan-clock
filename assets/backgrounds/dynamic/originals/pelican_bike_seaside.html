@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>鹈鹕的海边日落骑行</title>
+<style>
+  body { margin:0; background:#2b1d3a; font-family:system-ui,"Microsoft YaHei",sans-serif;
+         display:flex; flex-direction:column; align-items:center; color:#ffd6a5; }
+  h1 { font-size:22px; margin:16px 0 4px; letter-spacing:2px; }
+  p.sub { margin:0 0 10px; font-size:13px; opacity:.7; }
+  svg { width:96%; max-width:900px; height:auto; border-radius:18px; box-shadow:0 8px 30px rgba(0,0,0,.5); }
+  .ctrl { margin:14px; display:flex; gap:14px; align-items:center; font-size:14px; flex-wrap:wrap; justify-content:center; }
+  button { background:#ff7b54; color:#fff; border:0; border-radius:20px; padding:7px 18px; font-size:14px; cursor:pointer; }
+  button:hover { background:#ff5e3a; }
+  input[type=range] { accent-color:#ff7b54; }
+</style>
+</head>
+<body>
+<h1>鹈鹕的海边日落骑行</h1>
+<p class="sub">点「按铃」让鹈鹕打个招呼</p>
+<svg viewBox="0 0 800 500">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3d2c5e"/><stop offset=".45" stop-color="#c45c7a"/>
+      <stop offset=".8" stop-color="#ff9a5a"/><stop offset="1" stop-color="#ffd07a"/>
+    </linearGradient>
+    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e2797a"/><stop offset=".4" stop-color="#7a4d86"/><stop offset="1" stop-color="#3b2d63"/>
+    </linearGradient>
+    <linearGradient id="sunG" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe28a"/><stop offset="1" stop-color="#ff6b4a"/>
+    </linearGradient>
+    <mask id="sunMask">
+      <rect width="800" height="500" fill="#fff"/>
+      <g fill="#000"><rect x="0" y="250" width="800" height="4"/><rect x="0" y="266" width="800" height="6"/>
+        <rect x="0" y="282" width="800" height="8"/></g>
+    </mask>
+  </defs>
+
+  <rect width="800" height="500" fill="url(#sky)"/>
+  <g id="stars" fill="#fff"></g>
+  <circle cx="560" cy="300" r="95" fill="url(#sunG)" mask="url(#sunMask)"/>
+  <path id="island" fill="#5a3a6e" opacity=".8"/>
+  <rect y="300" width="800" height="130" fill="url(#sea)"/>
+  <g fill="#ffd07a" opacity=".55" id="glow"></g>
+  <g id="waves" stroke="#fff" stroke-linecap="round" fill="none"></g>
+  <g id="gulls" stroke="#2b1d3a" stroke-width="3" fill="none" stroke-linecap="round"></g>
+
+  <!-- 栏杆与棕榈 -->
+  <g id="palms"></g>
+  <g id="rail"></g>
+
+  <!-- 木栈道 -->
+  <rect y="430" width="800" height="70" fill="#8a5a44"/>
+  <rect y="430" width="800" height="5" fill="#a8735a"/>
+  <g stroke="#6e4535" stroke-width="2"><line x1="0" y1="455" x2="800" y2="455"/><line x1="0" y1="478" x2="800" y2="478"/></g>
+  <g id="planks" stroke="#6e4535" stroke-width="2"></g>
+
+  <g id="speed" stroke="#fff" stroke-linecap="round" opacity=".5"></g>
+
+  <g transform="translate(60,0)">
+    <ellipse cx="315" cy="457" rx="170" ry="8" fill="#000" opacity=".18"/>
+    <g id="wheelR"></g><g id="wheelF"></g>
+    <line id="crank2" stroke="#444" stroke-width="6" stroke-linecap="round"/>
+    <path id="leg2" fill="none" stroke="#c96a2a" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path id="foot2" fill="#c96a2a"/>
+
+    <!-- 复古车架 -->
+    <g stroke="#e63946" stroke-width="9" stroke-linecap="round" fill="none">
+      <path d="M200 390 L305 395 L275 290 Z"/>
+      <path d="M405 290 Q330 315 305 395"/>
+      <path d="M402 312 Q345 340 312 392"/>
+      <path d="M405 285 Q425 330 430 390"/>
+      <path d="M275 290 L272 278"/>
+    </g>
+    <path d="M405 285 L402 255 Q390 248 370 258" stroke="#ddd" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <circle cx="392" cy="252" r="6" fill="#ffd166" stroke="#c99a2e" stroke-width="2"/>
+    <path d="M250 272 Q272 262 292 272 L288 280 L254 280 Z" fill="#5c3b2e"/>
+    <path d="M258 280 l4 8 l4 -8 M278 280 l4 8 l4 -8" stroke="#999" stroke-width="2" fill="none"/>
+    <!-- 车筐和鱼 -->
+    <g>
+      <path d="M418 268 Q414 250 428 252 L440 262 Z" fill="#4ea8de"/>
+      <path d="M440 266 Q436 246 452 250 L458 262 Z" fill="#6cc1ef"/>
+      <path d="M412 262 L468 262 L460 302 L420 302 Z" fill="#d4a373" stroke="#8a5a2e" stroke-width="2"/>
+      <path d="M416 274 L465 274 M418 288 L462 288 M430 262 L432 302 M445 262 L444 302" stroke="#8a5a2e" stroke-width="1.5"/>
+      <line x1="410" y1="295" x2="420" y2="290" stroke="#ddd" stroke-width="4"/>
+    </g>
+    <path d="M300 379 L200 383 M300 411 L200 397" stroke="#555" stroke-width="2"/>
+    <g id="ring"><circle cx="305" cy="395" r="17" fill="#ccc" stroke="#888" stroke-width="4" stroke-dasharray="4 3"/>
+      <circle cx="305" cy="395" r="5" fill="#555"/></g>
+    <line id="crank1" stroke="#222" stroke-width="6" stroke-linecap="round"/>
+    <path id="leg1" fill="none" stroke="#f08a3c" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path id="foot1" fill="#f08a3c"/>
+
+    <!-- 鹈鹕 -->
+    <g id="pelican">
+      <path d="M224 210 L178 190 L190 218 L176 238 L228 230 Z" fill="#d9d2c3" stroke="#8f8676" stroke-width="2"/>
+      <path d="M222 212 C236 172 306 162 350 188 C366 204 356 250 324 266 C290 282 242 266 222 212 Z"
+            fill="#faf6ee" stroke="#8f8676" stroke-width="2.5"/>
+      <path d="M328 198 C368 178 345 140 380 122" fill="none" stroke="#8f8676" stroke-width="30" stroke-linecap="round"/>
+      <path d="M328 198 C368 178 345 140 380 122" fill="none" stroke="#faf6ee" stroke-width="25" stroke-linecap="round"/>
+      <circle cx="385" cy="115" r="25" fill="#faf6ee" stroke="#8f8676" stroke-width="2.5"/>
+      <!-- 头盔 -->
+      <path d="M358 110 Q358 78 390 78 Q414 82 410 104 Z" fill="#06d6a0" stroke="#048a68" stroke-width="2.5"/>
+      <path d="M372 86 L376 100 M388 82 L390 100 M402 86 L400 102" stroke="#048a68" stroke-width="2.5"/>
+      <path d="M362 108 L408 102" stroke="#048a68" stroke-width="3"/>
+      <!-- 喉囊 + 鱼尾 -->
+      <g id="fishTail"><path d="M500 132 L522 120 L518 136 L524 150 Z" fill="#4ea8de" stroke="#2a6f97" stroke-width="1.5"/></g>
+      <g id="beak">
+        <g id="pouch"><path d="M402 124 L505 138 Q478 202 412 162 Z" fill="#ffb347" stroke="#d9782b" stroke-width="2"/></g>
+        <path d="M398 104 L512 128 L506 139 L402 125 Z" fill="#ffc65c" stroke="#d9782b" stroke-width="2"/>
+      </g>
+      <!-- 墨镜 -->
+      <path d="M380 102 L406 100 Q408 114 396 115 Q384 115 380 102 Z" fill="#1d1d2b"/>
+      <path d="M386 104 L392 108" stroke="#fff" stroke-width="2" opacity=".7"/>
+      <path d="M372 104 L381 103" stroke="#1d1d2b" stroke-width="3"/>
+      <!-- 翅膀 -->
+      <path d="M250 196 C302 168 352 200 376 258 C350 258 310 250 260 238 Z"
+            fill="#ece6d9" stroke="#8f8676" stroke-width="2.5"/>
+      <path d="M276 216 Q318 218 350 240 M268 228 Q306 236 334 248" stroke="#b5ab98" stroke-width="2" fill="none"/>
+    </g>
+    <!-- 按铃气泡 -->
+    <g id="bubble" opacity="0">
+      <path d="M440 190 h120 a14 14 0 0 1 14 14 v26 a14 14 0 0 1 -14 14 h-96 l-16 14 l2 -14 h-10 a14 14 0 0 1 -14 -14 v-26 a14 14 0 0 1 14 -14 z"
+            fill="#fff" stroke="#2b1d3a" stroke-width="2"/>
+      <text x="500" y="224" text-anchor="middle" font-size="20" font-weight="bold" fill="#e63946">叮铃铃～</text>
+    </g>
+  </g>
+</svg>
+<div class="ctrl">
+  <button id="btn">暂停</button>
+  <button id="bell">按铃</button>
+  <label>速度 <input type="range" id="spd" min="0.5" max="9" step="0.1" value="3.5"></label>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const NS = "http://www.w3.org/2000/svg";
+const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]); parent && parent.appendChild(e); return e; };
+
+// 星星
+for (let i = 0; i < 40; i++) el("circle", { cx: Math.random()*800, cy: Math.random()*140,
+  r: Math.random()*1.4+.3, opacity: Math.random()*.6+.2 }, $("stars"));
+
+// 车轮（白胎复古款）
+function makeWheel(g, cx, cy) {
+  g.innerHTML = `<circle cx="${cx}" cy="${cy}" r="65" fill="none" stroke="#222" stroke-width="10"/>
+    <circle cx="${cx}" cy="${cy}" r="60" fill="none" stroke="#f1f1f1" stroke-width="3"/>
+    <circle cx="${cx}" cy="${cy}" r="56" fill="none" stroke="#bbb" stroke-width="2"/>`;
+  const s = el("g", {}, g);
+  for (let i = 0; i < 16; i++) { const a = i*Math.PI/8;
+    el("line", { x1: cx, y1: cy, x2: cx+56*Math.cos(a), y2: cy+56*Math.sin(a), stroke: "#ccc", "stroke-width": 1.3 }, s); }
+  el("circle", { cx, cy, r: 9, fill: "#e63946" }, g);
+  el("circle", { cx, cy, r: 4, fill: "#ddd" }, g);
+  return s;
+}
+const spR = makeWheel($("wheelR"), 200, 390), spF = makeWheel($("wheelF"), 430, 390);
+
+// 海面波纹与日光倒影
+const waves = [];
+[[318,.12,"30 50",.45],[340,.2,"50 70",.35],[365,.3,"70 90",.3],[392,.42,"90 110",.25],[418,.55,"110 120",.2]]
+  .forEach(([y,sp,da,op]) => waves.push({ e: el("line", { x1:0, y1:y, x2:800, y2:y, "stroke-dasharray":da,
+    "stroke-width": 2 + (y-300)/50, opacity: op }, $("waves")), sp }));
+const glow = [];
+for (let i = 0; i < 7; i++) glow.push(el("rect", { x: 560 - (80 - i*9), y: 304 + i*14, width: (80-i*9)*2, height: 4, rx: 2 }, $("glow")));
+
+// 海鸥
+const gulls = [[150,90,1],[260,130,.7],[620,70,.85]].map(([x,y,s],i) =>
+  ({ e: el("path", {}, $("gulls")), x, y, s, ph: i*1.7 }));
+
+// 棕榈树
+const palms = [0, 560].map(x => {
+  const g = el("g", {}, $("palms"));
+  g.innerHTML = `<path d="M0 430 Q-6 360 18 300" stroke="#4a2f3e" stroke-width="12" fill="none" stroke-linecap="round"/>
+    <g fill="#3b5d4a">
+      <path d="M18 300 Q-30 280 -60 310 Q-20 290 18 304Z"/><path d="M18 300 Q60 270 95 300 Q55 288 18 305Z"/>
+      <path d="M18 300 Q-10 255 -40 260 Q0 268 16 302Z"/><path d="M18 300 Q40 250 75 252 Q40 265 20 302Z"/>
+      <path d="M18 300 Q20 270 10 245 Q30 270 22 302Z"/></g>
+    <circle cx="14" cy="306" r="5" fill="#5a3a2a"/><circle cx="23" cy="308" r="5" fill="#5a3a2a"/>`;
+  return { g, x };
+});
+
+// 栏杆、木板
+const rail = $("rail");
+el("rect", { x:0, y:396, width:800, height:5, fill:"#f4e1c1" }, rail);
+el("rect", { x:0, y:414, width:800, height:3, fill:"#e8cfa8" }, rail);
+const posts = el("g", { fill: "#f4e1c1" }, rail);
+for (let x = -60; x < 880; x += 60) el("rect", { x, y: 396, width: 6, height: 36 }, posts);
+const planks = $("planks");
+const plankG = el("g", {}, planks);
+for (let x = -80; x < 900; x += 80) { el("line", { x1:x, y1:435, x2:x, y2:455 }, plankG);
+  el("line", { x1:x+40, y1:455, x2:x+40, y2:478 }, plankG); el("line", { x1:x+20, y1:478, x2:x+20, y2:500 }, plankG); }
+
+// 速度线
+const speeds = [0,1,2,3,4].map(i => ({ e: el("line", { "stroke-width": 3 }, $("speed")), y: 170 + i*45, ph: i*137 }));
+
+// 腿部反向运动学
+const HIP = [282, 272], BB = [305, 395], CR = 28, L1 = 80, L2 = 80;
+function leg(hx, hy, px, py) {
+  const dx = px-hx, dy = py-hy, d = Math.min(Math.hypot(dx, dy), L1+L2-.1), a = Math.atan2(dy, dx);
+  const off = Math.acos((L1*L1 + d*d - L2*L2) / (2*L1*d));
+  return `M${hx} ${hy} L${hx+L1*Math.cos(a-off)} ${hy+L1*Math.sin(a-off)} L${px} ${py}`;
+}
+const foot = (x, y) => `M${x-8} ${y-2} L${x+18} ${y+1} L${x+14} ${y+7} L${x-4} ${y+6} Z`;
+const mod = (a, n) => ((a % n) + n) % n;
+
+let dist = 0, t = 0, running = true, last = performance.now(), bellT = -999;
+$("btn").onclick = () => { running = !running; $("btn").textContent = running ? "暂停" : "继续"; };
+$("bell").onclick = () => { bellT = t; };
+
+function frame(now) {
+  const dt = Math.min((now - last) / 16.67, 3); last = now;
+  const v = running ? parseFloat($("spd").value) : 0;
+  dist += v * dt; if (running) t += dt;
+
+  const wa = dist / 65 * 180 / Math.PI;
+  spR.setAttribute("transform", `rotate(${wa} 200 390)`);
+  spF.setAttribute("transform", `rotate(${wa} 430 390)`);
+
+  const c = dist / 65 / 2.2;
+  $("ring").setAttribute("transform", `rotate(${c*180/Math.PI} 305 395)`);
+  const bob = 3 * Math.sin(2*c), lean = 1.5 * Math.sin(c);
+  $("pelican").setAttribute("transform", `translate(0 ${bob}) rotate(${lean} 290 260)`);
+  [[1, c], [2, c + Math.PI]].forEach(([i, ang]) => {
+    const px = BB[0] + CR*Math.cos(ang), py = BB[1] + CR*Math.sin(ang);
+    const cr = $("crank"+i);
+    cr.setAttribute("x1", BB[0]); cr.setAttribute("y1", BB[1]); cr.setAttribute("x2", px); cr.setAttribute("y2", py);
+    $("leg"+i).setAttribute("d", leg(HIP[0], HIP[1] + bob, px, py));
+    $("foot"+i).setAttribute("d", foot(px, py));
+  });
+
+  // 喉囊、鱼尾
+  $("pouch").setAttribute("transform", `translate(402 124) scale(1 ${1 + .07*Math.sin(t*.22)}) translate(-402 -124)`);
+  $("fishTail").setAttribute("transform", `rotate(${12*Math.sin(t*.5)} 503 135)`);
+
+  // 按铃：张嘴 + 气泡
+  const bt = t - bellT;
+  const showing = bt >= 0 && bt < 90;
+  $("bubble").setAttribute("opacity", showing ? Math.min(1, bt/8, (90-bt)/12) : 0);
+  $("beak").setAttribute("transform", showing && bt < 40 ? `rotate(${-6*Math.abs(Math.sin(bt*.3))} 400 112)` : "");
+
+  // 背景视差
+  waves.forEach(w => w.e.setAttribute("stroke-dashoffset", dist * w.sp));
+  glow.forEach((g, i) => g.setAttribute("opacity", .5 + .5*Math.sin(t*.08 + i)));
+  const io = mod(dist * .04, 800);
+  let d = "";
+  for (let k = -1; k < 2; k++) { const o = k*800 - io;
+    d += `M${o+60} 300 Q${o+120} 270 ${o+200} 285 Q${o+250} 262 ${o+320} 300 Z M${o+600} 300 Q${o+650} 285 ${o+720} 300 Z `; }
+  $("island").setAttribute("d", d);
+  gulls.forEach(g => {
+    const x = mod(g.x - dist*.06 + t*.6, 900) - 50, f = 8*Math.sin(t*.15 + g.ph), y = g.y + 6*Math.sin(t*.03 + g.ph);
+    g.e.setAttribute("d", `M${x-14*g.s} ${y} Q${x-7*g.s} ${y-f*g.s} ${x} ${y} Q${x+7*g.s} ${y-f*g.s} ${x+14*g.s} ${y}`);
+  });
+  palms.forEach(p => p.g.setAttribute("transform", `translate(${mod(p.x - dist*.8, 1120) - 120} 0)`));
+  posts.setAttribute("transform", `translate(${-mod(dist*.8, 60)} 0)`);
+  plankG.setAttribute("transform", `translate(${-mod(dist, 80)} 0)`);
+  speeds.forEach(s => {
+    const len = 20 + v*8, x = mod(s.ph - dist*1.5, 300) + 20;
+    s.e.setAttribute("x1", x); s.e.setAttribute("x2", x + len);
+    s.e.setAttribute("y1", s.y); s.e.setAttribute("y2", s.y);
+    s.e.setAttribute("opacity", v > 4 ? Math.min(1, (v-4)/3) : 0);
+  });
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
