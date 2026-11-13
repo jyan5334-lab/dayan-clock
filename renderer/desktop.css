@@ -45,10 +45,11 @@ html[data-fullscreen="true"] .resize-corner { display:none; }
 
 /* Fullscreen is a real edge-to-edge canvas; window mode keeps its 100:71 ratio. */
 #simple-timers .wallpaper-media { position:absolute;inset:0;z-index:0;display:none;overflow:hidden;pointer-events:none; }
-#simple-timers .wallpaper-media video { width:100%;height:100%;object-fit:cover; }
+#simple-timers .wallpaper-media img,#simple-timers .wallpaper-media video { display:block;width:100%;height:100%;object-fit:cover;object-position:center; }
 #simple-timers .wallpaper-media iframe { display:block;width:100%;height:100%;border:0;pointer-events:none;background:#000; }
-#simple-timers .has-motion-background .wallpaper-media { display:block; }
-#simple-timers .has-motion-background { background-image:none; }
+#simple-timers .has-wallpaper-media .wallpaper-media { display:block; }
+#simple-timers .has-wallpaper-media { background-image:none; }
+#simple-timers .has-wallpaper-media::before { z-index:1; }
 #simple-timers .has-original-motion-background::before { display:none; }
 /* The native title bar already identifies the app in windowed mode. */
 html:not([data-fullscreen="true"]) #simple-timers .brand { display:none; }

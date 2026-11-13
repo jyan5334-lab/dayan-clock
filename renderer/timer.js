@@ -62,19 +62,25 @@
     function render() {
       const now=new Date();if(!s.running&&document.activeElement!==q('.minutes')&&document.activeElement!==q('.seconds')){q('.minutes').value=Math.floor(s.target/60000);q('.seconds').value=Math.floor(s.target/1000)%60;}
       const background=backgrounds.find(b=>b.id===s.background);
-      const displayTiles=background?.perDisplay&&presentationLayout?.scope==='all'&&presentationLayout.displays?.length?presentationLayout.displays:null;
+      const displayTiles=background&&presentationLayout?.scope==='all'&&presentationLayout.displays?.length?presentationLayout.displays:null;
       const mediaLayout=displayTiles?JSON.stringify({area:presentationLayout.area,displays:displayTiles}):'';
       if(lastBackground!==s.background||lastMediaLayout!==mediaLayout){
         app.classList.toggle('has-background',Boolean(background));
-        app.classList.toggle('has-original-motion-background',Boolean(background?.perDisplay));
-        app.style.setProperty('--wallpaper',background&&background.kind!=='video'?`url("${background.src}")`:'none');
+        app.classList.toggle('has-original-motion-background',Boolean(background?.originalColors));
+        app.classList.toggle('has-wallpaper-media',Boolean(background));
+        app.classList.toggle('has-motion-background',background?.kind==='video'||background?.kind==='html');
+        app.style.setProperty('--wallpaper','none');
         const media=q('.wallpaper-media');
         media.replaceChildren();
-        if(background?.kind==='video'){
-          const video=document.createElement('video');video.src=background.src;video.autoplay=true;video.loop=true;video.muted=true;video.playsInline=true;media.append(video);app.classList.add('has-motion-background');
-        }else if(background?.kind==='html'){
+        if(background){
           for(const display of displayTiles||[null]){
-            const frame=document.createElement('iframe');frame.src=background.src;frame.title=background.label;frame.tabIndex=-1;frame.setAttribute('aria-hidden','true');frame.setAttribute('loading','eager');
+            const frame=document.createElement(background.kind==='html'?'iframe':background.kind==='video'?'video':'img');
+            if(background.kind==='html'){
+              frame.title=background.label;frame.tabIndex=-1;frame.setAttribute('aria-hidden','true');frame.setAttribute('loading','eager');
+            }else if(background.kind==='video'){
+              frame.autoplay=true;frame.loop=true;frame.muted=true;frame.playsInline=true;
+            }else{frame.alt='';frame.draggable=false;}
+            frame.src=background.src;
             if(display){
               const bounds=display.bounds,area=presentationLayout.area;
               Object.assign(frame.style,{position:'absolute',left:`${bounds.x-area.x}px`,top:`${bounds.y-area.y}px`,width:`${bounds.width}px`,height:`${bounds.height}px`});
@@ -82,8 +88,7 @@
             }
             media.append(frame);
           }
-          app.classList.add('has-motion-background');
-        }else app.classList.remove('has-motion-background');
+        }
         app.querySelectorAll('[data-background]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.background===s.background)));
         lastBackground=s.background;
         lastMediaLayout=mediaLayout;

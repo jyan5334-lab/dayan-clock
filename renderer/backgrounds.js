@@ -144,7 +144,7 @@ window.timerBackgrounds = [
     "label": "鹈鹕骑行",
     "group": "动态背景",
     "kind": "html",
-    "perDisplay": true,
+    "originalColors": true,
     "src": "assets/backgrounds/dynamic/animation.html?scene=pelican-bike",
     "thumb": "assets/backgrounds/dynamic/preview-pelican-bike.png"
   },
@@ -153,7 +153,7 @@ window.timerBackgrounds = [
     "label": "海边日落骑行",
     "group": "动态背景",
     "kind": "html",
-    "perDisplay": true,
+    "originalColors": true,
     "src": "assets/backgrounds/dynamic/animation.html?scene=pelican-seaside",
     "thumb": "assets/backgrounds/dynamic/preview-pelican-seaside.png"
   }
