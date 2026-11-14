@@ -2,7 +2,7 @@
 
 用于培训展示、直播计时和桌面屏保的离线桌面工具。打开即显示电脑本地时间，可切换秒表、倒计时和正计时；提供十四种显示样式、二十七款本地背景（含五种黑客动态壁纸和两款原创骑行动画）、日期与黄历，以及密码锁定展示模式。
 
-当前开发版本：**1.6.26**。本仓库与已发布的 Release 为公开，代码、素材、文档和 Windows 安装包可直接访问。
+当前开发版本：**1.6.27**。本仓库与已发布的 Release 为公开，代码、素材、文档和 Windows 安装包可直接访问。
 
 [下载安装包](https://github.com/jyan5334-lab/dayan-clock/releases/latest) · [使用说明](docs/user-guide.md) · [部署与构建](docs/deployment.md) · [换电脑与远程维护](docs/maintenance.md) · [更新记录](CHANGELOG.md)
 

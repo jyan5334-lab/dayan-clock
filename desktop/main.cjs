@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, Menu, Tray, dialog, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Menu, Tray, dialog, globalShortcut, powerMonitor } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -14,6 +14,7 @@ const { configureWindowsStartup } = require('./windows-startup.cjs');
 const { downloadUpdate, mergeUpdateSources, SOURCE_POOL_LIMIT } = require('./update-download.cjs');
 const { networkFetch, downloadTransports } = require('./update-network.cjs');
 const { resolveUpdateMode } = require('./update-mode.cjs');
+const { createUpdateSchedule } = require('./update-schedule.cjs');
 const { migrateLegacyBackups, hasBackups, matchesRestoredPolicies } = require('./policy-backups.cjs');
 
 const APP_NAME = 'DAYAN桌面';
@@ -33,7 +34,13 @@ let presentationDisplayId;
 let desktopHost, wallpaperControls, desktopHostDesired = false, desktopHostQueue = Promise.resolve(), desktopHostRequest = 0;
 let updateInfo = null, updateBusy = false, updateCheckPromise;
 let updateWindow, automaticUpdateTimer, rendererReady = false, updateDismissed = false, automaticUpdateAttempt = 0;
+let scheduledUpdatePending = false;
+const dailyUpdateSchedule = createUpdateSchedule({ onCheck: () => {
+  automaticUpdateAttempt = 0;
+  scheduleAutomaticUpdate(0, true);
+} });
 let keyboardGuard, lockStarting = false, unlockInputEnabled = false;
+let fullscreenBeforeLock = false;
 let configuredAutoStart;
 const presentationEditor = createPresentationEditor();
 let recoveryGrant = null, recoveryEditing = false;
@@ -250,17 +257,19 @@ function offerUpdate({ manual = false } = {}) {
   });
 }
 
-function scheduleAutomaticUpdate(delay = 0) {
+function scheduleAutomaticUpdate(delay = 0, scheduled = false) {
   clearTimeout(automaticUpdateTimer);
   if (quitting || !rendererReady || process.argv.includes('--dayan-update-recovery')) return;
+  scheduledUpdatePending ||= scheduled;
   automaticUpdateTimer = setTimeout(async () => {
     const result = await checkForUpdates();
     if (quitting) return;
     if (result.error) {
       const delays = [15000, 60000, 300000];
-      if (automaticUpdateAttempt < delays.length) scheduleAutomaticUpdate(delays[automaticUpdateAttempt++]);
+      if (automaticUpdateAttempt < delays.length) scheduleAutomaticUpdate(delays[automaticUpdateAttempt++], scheduled);
     } else {
       automaticUpdateAttempt = 0;
+      if (scheduledUpdatePending) { updateDismissed = false; scheduledUpdatePending = false; }
       if (result.available) offerUpdate();
     }
   }, delay);
@@ -816,7 +825,11 @@ function setupIPC() {
   ipcMain.handle('dayan:update-ready', event => {
     if (event.sender === updateWindow?.webContents) return { available:Boolean(updateInfo), ...updateInfo };
     if (!trusted(event)) return null;
-    if (!rendererReady) { rendererReady = true; scheduleAutomaticUpdate(); }
+    if (!rendererReady) {
+      rendererReady = true;
+      scheduleAutomaticUpdate();
+      if (!process.argv.includes('--dayan-update-recovery')) dailyUpdateSchedule.start();
+    }
     return { available:false };
   });
   ipcMain.handle('dayan:update-online', event => {
@@ -938,6 +951,7 @@ function setupIPC() {
     lockStarting = false;
     if (!mainWindow || mainWindow.isDestroyed() || quitting) { await keyboardGuard?.stop(); return false; }
     // Preserve the ordinary window before kiosk expands its native bounds.
+    fullscreenBeforeLock = isPresentationFullscreen();
     preparePresentation();
     securityLocked = true;
     recoveryGrant = null;
@@ -968,8 +982,13 @@ function setupIPC() {
     await keyboardGuard?.stop();
     mainWindow.setMinimizable(true);
     mainWindow.setResizable(true);
-    mainWindow.setSkipTaskbar(false);
-    await leavePresentation();
+    if (fullscreenBeforeLock) {
+      // Exit kiosk protection, not the user's pre-existing wallpaper presentation.
+      mainWindow.setKiosk(false);
+      await applyPresentationWindow(true);
+      restorePinnedState();
+    } else await leavePresentation();
+    fullscreenBeforeLock = false;
     notify();
     offerUpdate();
     return true;
@@ -1098,6 +1117,8 @@ else {
       } catch (error) { console.error('Keyboard guard unavailable:', error.message); }
     }
     setupIPC();
+    powerMonitor.on('resume', () => dailyUpdateSchedule.tick());
+    if (process.env.DAYAN_TEST === '1') globalThis.__dayanUpdateSchedule = dailyUpdateSchedule;
     if (state.lockShortcut) {
       const result = configureLockShortcut(state.lockShortcut);
       if (!result.ok) shortcutError = result.error;
@@ -1136,6 +1157,7 @@ else {
     presentationEditor.close();
     clearTimeout(desktopReconcileTimer);
     clearTimeout(automaticUpdateTimer);
+    dailyUpdateSchedule.stop();
     clearInterval(trayReconcileInterval);
     tray?.destroy();
     tray = null;

@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
+const { spawnSync } = require('node:child_process');
 const { _electron } = require(process.env.DAYAN_PLAYWRIGHT_MODULE || 'playwright');
 const root = path.resolve(__dirname, '..');
 const packed = process.argv.includes('--packaged');
@@ -54,6 +55,44 @@ async function dismiss(page, selector) {
   await page.locator(selector).click({ noWaitAfter:true }).catch(error => { if (!page.isClosed()) throw error; });
   await closing;
 }
+async function startSchedule() {
+  await desktop.evaluate(() => {
+    globalThis.__dayanUpdateSchedule.stop();
+    globalThis.__originalUpdateNow = Date.now;
+    globalThis.__updateTestNow = new Date(2026, 10, 16, 8, 59).getTime();
+    Date.now = () => globalThis.__updateTestNow;
+    globalThis.__dayanUpdateSchedule.start();
+  });
+}
+async function scheduledCheck(hour) {
+  const before = requests;
+  await desktop.evaluate((_, hour) => {
+    globalThis.__updateTestNow = new Date(2026, 10, 16, hour).getTime();
+    globalThis.__dayanUpdateSchedule.tick();
+  }, hour);
+  const deadline = Date.now() + 5000;
+  while (requests === before && Date.now() < deadline) await pause(25);
+  assert.ok(requests > before, 'Scheduled slot must request the update manifest');
+}
+async function nativeDrag(page) {
+  const window = await desktop.browserWindow(page);
+  const before = await window.evaluate(window => window.getBounds());
+  const box = await page.locator('#update-title').boundingBox();
+  assert.equal(await page.locator('#update-title').evaluate(node => getComputedStyle(node).webkitAppRegion), 'drag');
+  const point = await desktop.evaluate(({ screen }, point) => screen.dipToScreenPoint(point), { x: Math.round(before.x + box.x + 60), y: Math.round(before.y + box.y + 8) });
+  await window.evaluate(window => { window.show(); window.focus(); });
+  const script = `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class UpdateDrag { [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y); [DllImport("user32.dll")] public static extern void mouse_event(uint f,uint x,uint y,uint d,UIntPtr e); }'
+[UpdateDrag]::SetCursorPos(${point.x},${point.y}) | Out-Null
+[UpdateDrag]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
+Start-Sleep -Milliseconds 80
+for ($step=1; $step -le 10; $step++) { [UpdateDrag]::SetCursorPos(${point.x}+$step*8,${point.y}+$step*4) | Out-Null; Start-Sleep -Milliseconds 15 }
+[UpdateDrag]::mouse_event(4,0,0,0,[UIntPtr]::Zero)`;
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { encoding: 'utf8', windowsHide: true });
+  assert.equal(result.status, 0, result.stderr);
+  const after = await window.evaluate(window => { window.hide(); return window.getBounds(); });
+  assert.ok(after.x > before.x + 20 && after.y > before.y + 10, JSON.stringify({ before, after }));
+  assert.equal(after.width, before.width); assert.equal(after.height, before.height);
+}
 (async () => {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   origin = `http://127.0.0.1:${server.address().port}`;
@@ -89,6 +128,13 @@ async function dismiss(page, selector) {
   assert.ok(requests > beforeReconnect, 'Reconnection must check again');
   assert.equal(updaterWindows().length, 0, 'Cancel must prevent repeated prompts in this session');
   assert.deepEqual(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds()), mainBounds, 'Opening and dismissing the prompt must not resize the wallpaper');
+  await startSchedule();
+  for (const hour of [9, 14, 17]) {
+    await scheduledCheck(hour); page = await prompt();
+    if (hour === 9) await nativeDrag(page);
+    await dismiss(page, '#update-cancel');
+  }
+  await desktop.evaluate(() => { globalThis.__dayanUpdateSchedule.stop(); Date.now = globalThis.__originalUpdateNow; });
   assert.equal(JSON.parse(fs.readFileSync(preferences)).updateReminderDate, undefined);
   await quit();
   await launch(); page = await prompt();
@@ -100,6 +146,9 @@ async function dismiss(page, selector) {
   while (requests === beforeMuted) await pause(50);
   await pause(800);
   assert.equal(updaterWindows().length, 0, 'Today preference must survive restarting the app');
+  await startSchedule(); await scheduledCheck(9); await pause(500);
+  assert.equal(updaterWindows().length, 0, 'Scheduled checks must honor today suppression');
+  await desktop.evaluate(() => { globalThis.__dayanUpdateSchedule.stop(); Date.now = globalThis.__originalUpdateNow; });
   assert.equal((await mainPage.evaluate(() => window.dayan.updateCheck())).available, true);
   page = await prompt();
   assert.ok(await page.locator('#update-notes').isVisible(), 'Manual checks must bypass today suppression');
@@ -118,9 +167,19 @@ async function dismiss(page, selector) {
   fs.writeFileSync(preferences, JSON.stringify(saved));
   await launch(); page = await prompt();
   assert.match(await page.locator('#update-title').innerText(), /测试/);
-  assert.equal(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().every(window => !window.isVisible())), true, 'Test windows must never be shown on the real desktop');
+  await dismiss(page, '#update-cancel');
+  assert.equal((await mainPage.evaluate(() => window.dayan.securitySetPassword({ next: '123456', recovery: { question: 'teacher', answer: 'Test Teacher' } }))).ok, true);
+  await startSchedule();
+  assert.equal(await mainPage.evaluate(() => window.dayan.securityLock()), true);
+  await scheduledCheck(9); await pause(500);
+  assert.equal(updaterWindows().length, 0, 'Scheduled updates must not interrupt locking');
+  assert.equal(await mainPage.evaluate(() => window.dayan.securityVerify('123456')), true);
+  await prompt();
+  await desktop.evaluate(() => { globalThis.__dayanUpdateSchedule.stop(); Date.now = globalThis.__originalUpdateNow; });
+  await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => !window.webContents.getURL().includes('updater=1')).hide());
+  assert.equal(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().every(window => !window.isVisible())), true, 'Test windows must be hidden after the explicit drag and lock checks');
   assert.deepEqual(errors, []);
-  const report = { result:'passed', packaged:packed, requests, testDir, checks:['Startup checks only after renderer readiness', 'Transient startup failure retries automatically', 'Independent update prompt leaves wallpaper bounds unchanged', 'Three responsive actions at 320, 480 and 600 pixels', 'Cancel only suppresses the current session', 'Today suppression persists across restart while checks continue', 'Manual checks bypass today suppression', 'Installation failure re-enables actions', 'Expired daily preference prompts again', 'Fixture installation is blocked and all test windows remain hidden'], errors };
+  const report = { result:'passed', packaged:packed, requests, testDir, checks:['Startup checks only after renderer readiness', 'Transient startup failure retries automatically', 'Independent update prompt leaves wallpaper bounds unchanged', 'Three responsive actions at 320, 480 and 600 pixels', 'Cancel suppresses reconnect prompts until next scheduled slot', '09:00/14:00/17:00 each request and reopen after cancellation', 'Native Windows title drag moves the prompt without resizing it', 'Today suppression persists and applies to scheduled checks', 'Manual checks bypass today suppression', 'Installation failure re-enables actions', 'Expired daily preference prompts again', 'Updates checked while locked appear after unlocking', 'Fixture installation blocked; windows hidden except explicit drag check'], errors };
   fs.writeFileSync(path.join(testDir, 'validation.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => { await quit(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });

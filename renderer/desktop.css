@@ -122,6 +122,7 @@ html[data-update-window="true"] #desktop-stage,html[data-update-window="true"] .
 html[data-update-window="true"] #update-modal { padding:0;background:#10191e; }
 html[data-update-window="true"] .update-panel { width:100%;min-height:100vh;max-height:100vh;border-radius:0;grid-template-rows:auto auto auto minmax(100px,1fr) auto auto auto; }
 html[data-update-window="true"] .update-notes { min-height:100px;max-height:none; }
+html[data-update-window="true"] .update-panel > .security-panel-icon,html[data-update-window="true"] #update-title,html[data-update-window="true"] #update-version { -webkit-app-region:drag;user-select:none; }
 @media(max-width:380px) { .update-actions { grid-template-columns:1fr 1fr; } .update-actions .update-confirm { grid-column:1/-1; } }
 #settings-modal { position:fixed;inset:0;z-index:60;display:grid;place-items:center;background:#0009;padding:12px; }
 .settings-panel { width:min(540px,100%);height:min(660px,calc(100vh - 24px));display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;background:#10191e;border:1px solid #42555c;border-radius:6px;box-shadow:0 20px 70px #000b; }

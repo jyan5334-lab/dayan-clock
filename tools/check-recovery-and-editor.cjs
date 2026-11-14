@@ -89,6 +89,7 @@ async function editor(label) {
   assert.equal(await page.evaluate(() => window.dayan.securityLock()), true);
   assert.equal(await page.evaluate(() => window.dayan.securityVerify('123456')), false);
   assert.equal(await page.evaluate(() => window.dayan.securityVerify('654321')), true);
+  await page.waitForSelector('html[data-fullscreen=false]');
   checks.push('Mandatory initial recovery setup, actual locked UI validation/reset, old password rejected, new password retained after restart');
   for (const displayScope of ['current', 'all']) {
     await page.evaluate(displayScope => window.dayan.save({ windowLayers: { unlocked: 'bottom', locked: 'top', displayScope } }), displayScope);
@@ -130,9 +131,31 @@ async function editor(label) {
     assert.deepEqual(native(before.hwnd), nativeBefore);
     assert.equal(await page.locator('html').getAttribute('data-fullscreen'), 'true');
     checks.push(`Fullscreen tray settings/style/background preserve native wallpaper bounds and parent: ${displayScope}`);
+    for (let cycle = 0; cycle < 2; cycle++) {
+      assert.equal(await page.evaluate(() => window.dayan.securityLock()), true);
+      await page.waitForSelector('html.locked[data-fullscreen=true]');
+      assert.equal(await page.evaluate(() => window.dayan.securityVerify('654321')), true);
+      await page.waitForSelector('html:not(.locked)[data-desktop-hosted=true][data-fullscreen=true]');
+      assert.deepEqual(await geometry(), before, 'Unlock must preserve wallpaper bounds');
+      assert.deepEqual(native(before.hwnd), nativeBefore, 'Unlock must restore the Explorer parent and client rectangle');
+    }
+    await page.screenshot({ path: path.join(data, `unlock-fullscreen-${displayScope}.png`) });
+    checks.push(`Repeated lock/unlock preserves fullscreen, native wallpaper parent and client bounds: ${displayScope}`);
     await tray('最小化（回到窗口）');
     await page.waitForSelector('html[data-fullscreen=false]');
     await page.evaluate(() => { const box = document.getElementById('show-clock-date'); if (!box.checked) box.click(); });
+  }
+  for (const displayScope of ['current', 'all']) {
+    await page.evaluate(displayScope => window.dayan.save({ windowLayers: { unlocked: 'top', locked: 'top', displayScope } }), displayScope);
+    await page.evaluate(() => window.dayan.windowAction('fullscreen'));
+    await page.waitForSelector('html[data-fullscreen=true]');
+    const before = await geometry();
+    assert.equal(await page.evaluate(() => window.dayan.securityLock()), true);
+    assert.equal(await page.evaluate(() => window.dayan.securityVerify('654321')), true);
+    await page.waitForSelector('html:not(.locked)[data-fullscreen=true]');
+    assert.deepEqual(await geometry(), before);
+    await tray('最小化（回到窗口）'); await page.waitForSelector('html[data-fullscreen=false]');
+    checks.push(`Top-layer fullscreen survives lock/unlock: ${displayScope}`);
   }
   await quit();
   // Simulate an existing installation with a password and no recovery record.
