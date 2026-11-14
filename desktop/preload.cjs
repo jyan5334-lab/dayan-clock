@@ -9,6 +9,16 @@ contextBridge.exposeInMainWorld('dayan', {
   securityLock: () => ipcRenderer.invoke('dayan:security-lock'),
   securityKeyboard: () => ipcRenderer.invoke('dayan:security-keyboard'),
   securityVerify: password => ipcRenderer.invoke('dayan:security-verify', password),
+  recoveryInput: enabled => ipcRenderer.invoke('dayan:recovery-input', enabled),
+  recoveryVerify: answer => ipcRenderer.invoke('dayan:recovery-verify', answer),
+  recoveryReset: payload => ipcRenderer.invoke('dayan:recovery-reset', payload),
+  editorReady: () => ipcRenderer.invoke('dayan:editor-ready'),
+  editorClose: () => ipcRenderer.invoke('dayan:editor-close'),
+  onPreferences: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on('dayan:preferences', listener);
+    return () => ipcRenderer.removeListener('dayan:preferences', listener);
+  },
   securityUnlockInput: enabled => ipcRenderer.invoke('dayan:security-unlock-input', enabled),
   onUnlockKey: callback => {
     const listener = (_event, key) => callback(key);

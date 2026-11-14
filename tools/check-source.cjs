@@ -13,6 +13,7 @@ const lock = JSON.parse(read('package-lock.json'));
 assert.equal(pkg.version, lock.version, 'Lockfile version differs');
 assert.equal(pkg.version, lock.packages[''].version, 'Root lock package version differs');
 assert.equal(pkg.private, true, 'Package must remain private');
+for (const module of ['desktop/password-recovery.cjs', 'desktop/presentation-editor.cjs']) assert.ok(pkg.build.files.includes(module), `Runtime module missing from package: ${module}`);
 for (const relative of ['index.html', 'desktop/main.cjs', 'desktop/preload.cjs', 'assets/icon.ico', 'assets/icon.png', 'LICENSE', 'THIRD_PARTY_NOTICES.md']) {
   assert.ok(fs.statSync(path.join(root, relative)).size > 0, `Missing ${relative}`);
 }

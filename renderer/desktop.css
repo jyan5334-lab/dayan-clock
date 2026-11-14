@@ -257,3 +257,22 @@ html[data-fullscreen="true"] #simple-timers .orbit .unlock-launch { grid-area:4/
 html[data-fullscreen="true"] #simple-timers .almanac { max-width:100%; }
 #simple-timers .clock-content-hidden .display > :is(.readout,.date,.ring,.marker,.artwork) { display:none!important; }
 html[data-fullscreen="true"] #simple-timers .orbit.clock-content-hidden > .display { display:flex; }
+.security-panel { max-height:calc(100vh - 24px);overflow:auto; }
+.security-panel select { width:100%;min-height:40px;padding:8px;background:#071014;color:#f1fffb;border:1px solid #ffffff2a;border-radius:5px;font:inherit; }
+.unlock-actions { display:grid;grid-template-columns:1fr 1fr;gap:8px; }
+.security-panel form .secondary-button { background:transparent;color:#b8d3d0;border-color:#ffffff35;font-weight:400; }
+#recovery-keyboard { display:grid;gap:6px; }
+#recovery-letters { display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:3px; }
+#recovery-keyboard button { min-width:0;min-height:30px;border:1px solid #ffffff35;border-radius:4px;background:#172a2e;color:#e8f9f6; }
+.recovery-keyboard-actions { display:flex;gap:5px; }
+.recovery-keyboard-actions button { flex:1;display:flex;align-items:center;justify-content:center;gap:4px; }
+#recovery-keyboard svg { width:16px;height:16px; }
+#recovery-keyboard[data-numeric="true"] .recovery-letter { display:none; }
+html.presentation-editor,html.presentation-editor body { background:transparent; }
+html.presentation-editor #desktop-stage { position:fixed;inset:0;width:100%!important;height:100%!important;transform:none!important;visibility:hidden; }
+html.presentation-editor .resize-corner { display:none; }
+html.presentation-editor #style-menu,html.presentation-editor #simple-timers .background-picker { position:fixed;left:50%;top:50%;right:auto;bottom:auto;transform:translate(-50%,-50%);visibility:visible;max-height:calc(100vh - 70px); }
+html.presentation-editor #settings-modal { background:transparent; }
+html.presentation-editor .settings-panel { width:min(600px,100%); }
+#editor-close { position:fixed;right:12px;top:8px;z-index:100;width:32px;height:32px;border:1px solid #ffffff40;border-radius:4px;background:#10191e;color:#effff8;display:grid;place-items:center; }
+html.presentation-editor body:has(#settings-modal:not([hidden])) #editor-close { display:none; }

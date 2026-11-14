@@ -94,7 +94,7 @@ async function checkVisibleBounds(page,hwnd,expected,label){
   assert.ok(menu.items.some(item=>/新建|New/.test(item)),JSON.stringify(menu));
   checks.push('Real Explorer context menu opens with Refresh and New, without modifying files');
   await page.screenshot({path:path.join(testDir,'wallpaper.png')});
-  await page.evaluate(()=>window.dayan.securitySetPassword({current:'',next:'123456'}));
+  await page.evaluate(()=>window.dayan.securitySetPassword({current:'',next:'123456',recovery:{question:'teacher',answer:'Test teacher'}}));
   // Feed a deterministic edge position to the app; do not move the user's cursor.
   const displays=await desktop.evaluate(({screen})=>screen.getAllDisplays());
   let edge;

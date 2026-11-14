@@ -1,6 +1,8 @@
 (() => {
   if (new URLSearchParams(location.search).has('updater')) return;
   const bridge = window.dayan;
+  const editorMode = new URLSearchParams(location.search).has('editor');
+  if (editorMode) document.documentElement.classList.add('presentation-editor');
   const sections = [...document.querySelectorAll('[data-variant]')];
   const stage = document.getElementById('desktop-stage');
   const menu = document.getElementById('style-menu');
@@ -19,6 +21,16 @@
   const newPassword = document.getElementById('new-password');
   const confirmPassword = document.getElementById('confirm-password');
   const securityError = document.getElementById('security-error');
+  const securityQuestion = document.getElementById('security-question');
+  const securityAnswer = document.getElementById('security-answer');
+  const securityAnswerConfirm = document.getElementById('security-answer-confirm');
+  const recoveryForm = document.getElementById('recovery-form');
+  const recoveryAnswer = document.getElementById('recovery-answer');
+  const resetForm = document.getElementById('recovery-reset-form');
+  const resetPassword = document.getElementById('recovery-new-password');
+  const resetConfirm = document.getElementById('recovery-confirm-password');
+  const recoveryKeyboard = document.getElementById('recovery-keyboard');
+  let recoveryToken = '', recoveryTarget = recoveryAnswer;
   const policyStatus = document.getElementById('policy-status');
   const policyDescription = document.getElementById('policy-description');
   const policySupport = document.getElementById('policy-support');
@@ -170,6 +182,7 @@
     settingsToggle.setAttribute('aria-expanded', 'false');
     bridge.settingsSeen().catch(() => {});
     settingsToggle.focus();
+    if (editorMode) bridge.editorClose();
   };
   const openSecurityModal = () => {
     if (security.locked) return;
@@ -180,6 +193,11 @@
     currentPassword.value = '';
     newPassword.value = '';
     confirmPassword.value = '';
+    securityAnswer.value = ''; securityAnswerConfirm.value = '';
+    securityAnswer.required = !security.recoveryConfigured;
+    securityAnswerConfirm.required = !security.recoveryConfigured;
+    securityAnswer.placeholder = security.recoveryConfigured ? '留空保留原密保，填写则更新答案' : '填写不易忘记的密保答案';
+    if (security.recoveryQuestionId) securityQuestion.value = security.recoveryQuestionId;
     clearSecurityError(securityError);
     securityModal.hidden = false;
     (hasPassword ? currentPassword : newPassword).focus();
@@ -196,6 +214,8 @@
     lockScreen.classList.add('has-panel');
     clearSecurityError(unlockError);
     unlockPassword.value = '';
+    unlockForm.hidden = false; recoveryForm.hidden = true; resetForm.hidden = true; recoveryKeyboard.hidden = true;
+    recoveryToken = ''; bridge.recoveryInput(false);
     unlockPassword.focus();
     bridge.securityUnlockInput(true);
     revealChrome();
@@ -207,20 +227,23 @@
     lockScreen.classList.remove('has-panel');
     clearSecurityError(unlockError);
     unlockPassword.value = '';
+    recoveryAnswer.value = ''; resetPassword.value = ''; resetConfirm.value = ''; recoveryToken = '';
+    bridge.recoveryInput(false);
   };
-  const isUnlockEditingKey = event => event.target === unlockPassword && (/^\d$/.test(event.key) || ['Backspace', 'Enter'].includes(event.key)) && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+  const isUnlockEditingKey = event => [unlockPassword, resetPassword, resetConfirm, recoveryAnswer].includes(event.target) && !event.ctrlKey && !event.metaKey && !event.altKey && (event.target === recoveryAnswer ? event.key.length === 1 || ['Backspace', 'Enter', 'Shift', 'Process', 'Unidentified'].includes(event.key) : !event.shiftKey && (/^\d$/.test(event.key) || ['Backspace', 'Enter'].includes(event.key)));
   const enableUnlockInput = () => { if (security.locked && !unlockPanel.hidden) bridge.securityUnlockInput(true); };
   unlockPassword.addEventListener('focus', enableUnlockInput);
   unlockPassword.addEventListener('pointerdown', enableUnlockInput);
   const applyUnlockKey = key => {
     if (!security.locked || unlockPanel.hidden) return;
-    unlockPassword.focus({ preventScroll: true });
-    const start = unlockPassword.selectionStart, end = unlockPassword.selectionEnd;
-    if (/^\d$/.test(key)) {
-      if (unlockPassword.value.length - (end - start) < 16) unlockPassword.setRangeText(key, start, end, 'end');
+    const input = !recoveryForm.hidden ? recoveryAnswer : !resetForm.hidden ? (recoveryTarget === resetConfirm ? resetConfirm : resetPassword) : unlockPassword;
+    input.focus({ preventScroll: true });
+    const start = input.selectionStart, end = input.selectionEnd;
+    if (/^\d$/.test(key) || (input === recoveryAnswer && key.length === 1)) {
+      if (input.value.length - (end - start) < input.maxLength) input.setRangeText(key, start, end, 'end');
     } else if (key === 'Backspace') {
-      unlockPassword.setRangeText('', start === end ? Math.max(0, start - 1) : start, end, 'end');
-    } else if (key === 'Enter') unlockForm.requestSubmit();
+      input.setRangeText('', start === end ? Math.max(0, start - 1) : start, end, 'end');
+    } else if (key === 'Enter') input.form.requestSubmit();
   };
   bridge.onUnlockKey(applyUnlockKey);
   document.getElementById('unlock-keypad').addEventListener('pointerdown', event => event.preventDefault());
@@ -246,7 +269,8 @@
   }, true);
   document.addEventListener('contextmenu', event => { if (security.locked) event.preventDefault(); });
   const syncSecurity = state => {
-    security = { passwordConfigured: Boolean(state.passwordConfigured), locked: Boolean(state.locked) };
+    security = { ...state, passwordConfigured: Boolean(state.passwordConfigured), locked: Boolean(state.locked) };
+    if (!securityQuestion.options.length && state.recoveryQuestions) for (const question of state.recoveryQuestions) securityQuestion.add(new Option(question.label, question.id));
     document.documentElement.classList.toggle('locked', security.locked);
     lockScreen.hidden = !security.locked;
     document.getElementById('keyboard-protection-error').hidden = !security.locked || state.keyboardGuardActive !== false;
@@ -269,6 +293,7 @@
   };
   const save = () => bridge.save({ widget, style, displaySettings, windowLayers, autoStart: autoStartEnabled });
   addEventListener('beforeunload', () => {
+    if (editorMode) return;
     document.getElementById('simple-timers').dispatchEvent(new Event('dayan:checkpoint'));
     bridge.saveSync({ widget, style, displaySettings, windowLayers, autoStart: autoStartEnabled });
   });
@@ -300,12 +325,12 @@
   bridge.onDesktopCommand(action => {
     if (action === 'background') {
       closeMenu();
-      if (!settingsModal.hidden) closeSettings();
+      settingsModal.hidden = true;
       const section = document.querySelector('[data-variant]:not([hidden])');
       if (section?.querySelector('.background-picker')?.hidden) section.querySelector('.background-toggle')?.click();
     } else if (action === 'style-toggle') {
-      if (!settingsModal.hidden) closeSettings();
-      if (menu.hidden) styleToggle.click();
+      settingsModal.hidden = true;
+      menu.hidden = false; styleToggle.setAttribute('aria-expanded', 'true');
     } else if (action === 'settings-toggle') {
       closeMenu();
       if (settingsModal.hidden) settingsToggle.click();
@@ -315,12 +340,12 @@
   styleToggle.addEventListener('click', () => { if (security.locked) return; menu.hidden = !menu.hidden; styleToggle.setAttribute('aria-expanded', String(!menu.hidden)); });
   lockButton.addEventListener('click', async () => {
     if (security.locked) { showUnlockPanel(); return; }
-    if (!security.passwordConfigured) { openSecurityModal(); return; }
+    if (!security.passwordConfigured || !security.recoveryConfigured) { openSecurityModal(); if (security.passwordConfigured) showSecurityError(securityError, '请验证当前密码并补设密保问题，再使用锁屏'); return; }
     await bridge.securityLock();
   });
   document.querySelectorAll('[data-style]').forEach(button => button.addEventListener('click', () => {
     if (security.locked) return;
-    selectStyle(Number(button.dataset.style)); closeMenu(); save();
+    selectStyle(Number(button.dataset.style)); closeMenu(); save().then(() => { if (editorMode) bridge.editorClose(); });
   }));
   document.addEventListener('pointerdown', event => { if (!event.target.closest('#style-menu,#style-toggle')) closeMenu(); });
 
@@ -392,9 +417,10 @@
     clearSecurityError(securityError);
     if (!/^\d{4,16}$/.test(newPassword.value)) { showSecurityError(securityError, '密码必须是 4 至 16 位数字'); return; }
     if (newPassword.value !== confirmPassword.value) { showSecurityError(securityError, '两次输入的密码不一致'); return; }
-    const result = await bridge.securitySetPassword({ current: currentPassword.value, next: newPassword.value });
+    if (securityAnswer.value !== securityAnswerConfirm.value) { showSecurityError(securityError, '两次输入的密保答案不一致'); return; }
+    const result = await bridge.securitySetPassword({ current: currentPassword.value, next: newPassword.value, recovery: { question: securityQuestion.value, answer: securityAnswer.value } });
     if (!result?.ok) { showSecurityError(securityError, result?.error || '密码保存失败'); return; }
-    security = { ...security, passwordConfigured: true };
+    security = { ...security, ...result };
     closeSecurityModal();
     syncSecurity(security);
   });
@@ -413,6 +439,62 @@
     } finally {
       unlockForm.dataset.busy = 'false';
     }
+  });
+  document.getElementById('forgot-password').addEventListener('click', () => {
+    clearSecurityError(unlockError);
+    if (!security.recoveryConfigured) { showSecurityError(unlockError, '此设备尚未设置密保问题。请使用原密码解锁后，在设置中补设密保。'); return; }
+    recoveryToken = ''; recoveryAnswer.value = '';
+    document.getElementById('recovery-question').textContent = security.recoveryQuestion;
+    unlockForm.hidden = true; recoveryForm.hidden = false; resetForm.hidden = true; recoveryKeyboard.hidden = false;
+    recoveryKeyboard.dataset.numeric = 'false';
+    bridge.securityUnlockInput(true); bridge.recoveryInput(true); recoveryAnswer.focus();
+  });
+  const returnToPassword = () => { showUnlockPanel(); };
+  document.getElementById('recovery-back').addEventListener('click', returnToPassword);
+  document.getElementById('recovery-reset-back').addEventListener('click', returnToPassword);
+  recoveryForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (recoveryForm.dataset.busy === 'true') return;
+    recoveryForm.dataset.busy = 'true';
+    try {
+      const result = await bridge.recoveryVerify(recoveryAnswer.value);
+      recoveryAnswer.value = '';
+      if (!result?.ok) { showSecurityError(unlockError, result?.error || '密保验证失败'); return; }
+      clearSecurityError(unlockError); recoveryToken = result.token;
+      recoveryForm.hidden = true; resetForm.hidden = false; recoveryKeyboard.dataset.numeric = 'true';
+      resetPassword.value = ''; resetConfirm.value = ''; recoveryTarget = resetPassword;
+      bridge.recoveryInput(false); resetPassword.focus();
+    } finally { recoveryForm.dataset.busy = 'false'; }
+  });
+  for (const input of [recoveryAnswer, resetPassword, resetConfirm]) input.addEventListener('focus', () => { recoveryTarget = input; bridge.securityUnlockInput(true); bridge.recoveryInput(input === recoveryAnswer); });
+  resetForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (resetForm.dataset.busy === 'true') return;
+    if (!/^\d{4,16}$/.test(resetPassword.value)) { showSecurityError(unlockError, '密码必须是 4 至 16 位数字'); return; }
+    if (resetPassword.value !== resetConfirm.value) { showSecurityError(unlockError, '两次输入的密码不一致'); return; }
+    resetForm.dataset.busy = 'true';
+    try {
+      const result = await bridge.recoveryReset({ token: recoveryToken, next: resetPassword.value });
+      if (!result?.ok) { showSecurityError(unlockError, result?.error || '密码重置失败'); return; }
+      const password = resetPassword.value;
+      recoveryToken = ''; resetPassword.value = ''; resetConfirm.value = '';
+      if (await bridge.securityVerify(password)) syncSecurity({ ...security, locked: false });
+      else { showUnlockPanel(); showSecurityError(unlockError, '新密码已保存，请输入新密码解锁'); }
+    } finally { resetForm.dataset.busy = 'false'; }
+  });
+  for (const key of '1234567890abcdefghijklmnopqrstuvwxyz-./') {
+    const button = document.createElement('button'); button.type = 'button'; button.dataset.recoveryKey = key; button.textContent = key;
+    if (!/^\d$/.test(key)) button.className = 'recovery-letter';
+    document.getElementById('recovery-letters').append(button);
+  }
+  recoveryKeyboard.addEventListener('pointerdown', event => event.preventDefault());
+  recoveryKeyboard.addEventListener('click', event => {
+    const key = event.target.closest('[data-recovery-key]')?.dataset.recoveryKey;
+    if (key) applyUnlockKey(key);
+  });
+  document.getElementById('recovery-system-keyboard').addEventListener('click', async () => {
+    const result = await bridge.securityKeyboard();
+    if (!result?.ok) showSecurityError(unlockError, '系统键盘暂不可用，请使用屏幕键盘或实体键盘');
   });
 
   document.addEventListener('keydown', event => {
@@ -449,6 +531,22 @@
     addEventListener('blur', end);
   }
 
+  bridge.onPreferences(saved => {
+    widget = saved.widget; displaySettings = normalizeDisplaySettings(saved.displaySettings);
+    windowLayers = { ...windowLayers, ...saved.windowLayers }; autoStartEnabled = saved.autoStart !== false;
+    syncDisplaySettings(); syncWindowLayers(); syncAutoStart(); selectStyle(saved.style);
+    if (window.openai) window.openai.widgetState = widget;
+    dispatchEvent(new CustomEvent('openai:set_globals', { detail: { globals: { widgetState: widget } } }));
+  });
+  if (editorMode) {
+    const close = document.createElement('button'); close.id = 'editor-close'; close.type = 'button'; close.setAttribute('aria-label', '关闭菜单'); close.innerHTML = '<i data-lucide="x"></i>';
+    close.addEventListener('click', () => bridge.editorClose()); document.body.append(close);
+    document.addEventListener('keydown', event => { if (event.key === 'Escape') bridge.editorClose(); });
+    document.addEventListener('click', event => {
+      if (event.target.closest('[data-background]')) save().then(() => bridge.editorClose());
+      if (event.target.closest('[data-background-close]')) bridge.editorClose();
+    });
+  }
   bridge.load().then(saved => {
     widget = saved?.widget;
     displaySettings = normalizeDisplaySettings(saved?.displaySettings);
@@ -461,15 +559,15 @@
     aboutVersion.textContent = `当前版本：${saved?.appVersion || '未知'}`;
     selectStyle(Number.isInteger(saved?.style) ? saved.style : 1);
     window.openai = { widgetState: widget, setWidgetState: next => { widget = next; return save(); } };
-    syncWindow(saved || { pinned: false, fullscreen: false, passwordConfigured: false, locked: false });
+    syncWindow(editorMode ? { ...saved, fullscreen: false } : saved || { pinned: false, fullscreen: false, passwordConfigured: false, locked: false });
     refreshPolicy();
-    if (saved?.showSettingsOnStartup) openSettings(false);
+    if (saved?.showSettingsOnStartup && !editorMode) openSettings(false);
     const script = document.createElement('script');
     script.src = 'renderer/timer.js';
     script.onload = () => {
       document.querySelectorAll('[data-tooltip]').forEach(el => { el.title = el.dataset.tooltip; });
       document.documentElement.dataset.ready = 'true';
-      bridge.updateReady().catch(error => console.error('Update startup failed:', error));
+      (editorMode ? bridge.editorReady() : bridge.updateReady()).catch(error => console.error('Startup failed:', error));
     };
     document.head.append(script);
   }).catch(error => { console.error(error); });

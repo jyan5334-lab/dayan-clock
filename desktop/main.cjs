@@ -7,6 +7,8 @@ const { RATIO, MIN_WIDTH, corners, fitBounds, resizeFromCorner } = require('./wi
 const { prepareUpdateInstall } = require('./update-install.cjs');
 const { createDesktopHost } = require('./windows-desktop.cjs');
 const { createWallpaperControls } = require('./wallpaper-controls.cjs');
+const { createPresentationEditor } = require('./presentation-editor.cjs');
+const recovery = require('./password-recovery.cjs');
 const { createKeyboardGuard } = require('./keyboard-guard.cjs');
 const { configureWindowsStartup } = require('./windows-startup.cjs');
 const { downloadUpdate, mergeUpdateSources, SOURCE_POOL_LIMIT } = require('./update-download.cjs');
@@ -33,6 +35,8 @@ let updateInfo = null, updateBusy = false, updateCheckPromise;
 let updateWindow, automaticUpdateTimer, rendererReady = false, updateDismissed = false, automaticUpdateAttempt = 0;
 let keyboardGuard, lockStarting = false, unlockInputEnabled = false;
 let configuredAutoStart;
+const presentationEditor = createPresentationEditor();
+let recoveryGrant = null, recoveryEditing = false;
 const stateFile = () => path.join(app.getPath('userData'), 'preferences.json');
 
 function normalizeDisplaySettings(value) {
@@ -450,7 +454,10 @@ function flushState() {
 }
 
 function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(flushState, 150); }
-function trusted(event) { return mainWindow && event.sender === mainWindow.webContents; }
+function trusted(event) { return Boolean((mainWindow && event.sender === mainWindow.webContents) || event.sender === presentationEditor.window?.webContents); }
+function broadcastPreferences(sender) {
+  for (const win of [mainWindow, presentationEditor.window]) if (win && !win.isDestroyed() && win.webContents !== sender) win.webContents.send('dayan:preferences', { widget: state.widget, style: state.style, displaySettings: state.displaySettings, windowLayers: state.windowLayers, autoStart: state.autoStart });
+}
 function passwordRecord() {
   const security = state.security;
   return security && typeof security.salt === 'string' && typeof security.hash === 'string' ? security : null;
@@ -466,7 +473,7 @@ function verifyPassword(password) {
   return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
 }
 function securitySnapshot() {
-  return { locked: securityLocked, passwordConfigured: Boolean(passwordRecord()), keyboardGuardActive: process.platform === 'win32' ? Boolean(keyboardGuard?.isActive()) : null };
+  return { locked: securityLocked, passwordConfigured: Boolean(passwordRecord()), recoveryConfigured: recovery.valid(state.security?.recovery), recoveryQuestionId: state.security?.recovery?.question || '', recoveryQuestion: recovery.QUESTIONS.find(item => item.id === state.security?.recovery?.question)?.label || '', recoveryQuestions: recovery.QUESTIONS, keyboardGuardActive: process.platform === 'win32' ? Boolean(keyboardGuard?.isActive()) : null };
 }
 function isPresentationFullscreen() {
   return Boolean(mainWindow && !mainWindow.isDestroyed() && (presentationRequested || mainWindow.isFullScreen() || mainWindow.isKiosk()));
@@ -530,6 +537,9 @@ async function runTrayAction(action) {
   }
   trayActionBusy = true;
   try {
+    const command = { settings: 'settings-toggle', style: 'style-toggle', background: 'background' }[action];
+    if (isPresentationFullscreen() && command) { await presentationEditor.open(command); return true; }
+    presentationEditor.close();
     if (isPresentationFullscreen()) await leavePresentation();
     await new Promise(resolve => setTimeout(resolve, 140));
     if (!mainWindow || mainWindow.isDestroyed()) return false;
@@ -727,9 +737,12 @@ function notify() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   refreshTrayMenu();
   mainWindow.webContents.send('dayan:window-state', { pinned: state.pinned === true, fullscreen: isPresentationFullscreen(), desktopHosted: desktopWindowHosted, windowLayers: normalizeWindowLayers(state.windowLayers), presentationLayout: presentationLayout(), ...securitySnapshot() });
+  presentationEditor.window?.webContents.send('dayan:window-state', { pinned: false, fullscreen: false, ...securitySnapshot() });
 }
 
 function setupIPC() {
+  ipcMain.handle('dayan:editor-ready', event => presentationEditor.ready(event.sender));
+  ipcMain.handle('dayan:editor-close', event => { if (event.sender === presentationEditor.window?.webContents) presentationEditor.close(); });
   ipcMain.handle('dayan:load', event => trusted(event) ? { widget: state.widget, style: state.style, displaySettings: state.displaySettings, windowLayers: normalizeWindowLayers(state.windowLayers), presentationLayout: presentationLayout(), autoStart: state.autoStart !== false, appVersion: app.getVersion(), showSettingsOnStartup: state.settingsGuideVersion !== 1, pinned: state.pinned === true, fullscreen: isPresentationFullscreen(), ...securitySnapshot() } : null);
   ipcMain.handle('dayan:security-policy-status', event => trusted(event) ? windowsLockdownStatus() : { supported: false, enabled: false, missing: [], error: '请求无效' });
   ipcMain.handle('dayan:security-policy-enable', event => trusted(event) && !securityLocked ? enableWindowsLockdown() : { ok: false, error: '请先解锁时钟' });
@@ -751,6 +764,7 @@ function setupIPC() {
     if (typeof payload.autoStart === 'boolean') state.autoStart = applyAutoStart(payload.autoStart);
     if (isPresentationFullscreen()) applyPresentationWindow(); else restorePinnedState();
     flushState();
+    broadcastPreferences(event.sender);
     return true;
   });
   ipcMain.on('dayan:save-sync', (event, payload) => {
@@ -762,7 +776,7 @@ function setupIPC() {
     if (payload.windowLayers && typeof payload.windowLayers === 'object') state.windowLayers = normalizeWindowLayers(payload.windowLayers);
     if (typeof payload.autoStart === 'boolean') state.autoStart = applyAutoStart(payload.autoStart);
     if (isPresentationFullscreen()) applyPresentationWindow(); else restorePinnedState();
-    flushState();event.returnValue = true;
+    flushState();broadcastPreferences(event.sender);event.returnValue = true;
   });
   ipcMain.handle('dayan:auto-start', (event, enabled) => {
     if (!trusted(event) || securityLocked || typeof enabled !== 'boolean') return { ok: false, enabled: state.autoStart !== false, error: '请求无效' };
@@ -819,16 +833,46 @@ function setupIPC() {
     return true;
   });
   ipcMain.handle('dayan:security-set-password', (event, payload) => {
-    if (!trusted(event) || !payload || typeof payload !== 'object') return { ok: false, error: '请求无效' };
+    if (!trusted(event) || securityLocked || !payload || typeof payload !== 'object') return { ok: false, error: '请求无效' };
     const current = typeof payload.current === 'string' ? payload.current : '';
     const next = typeof payload.next === 'string' ? payload.next : '';
     if (!/^\d{4,16}$/.test(next)) return { ok: false, error: '密码必须是 4 至 16 位数字' };
     if (passwordRecord() && !verifyPassword(current)) return { ok: false, error: '当前密码不正确' };
+    let question = state.security?.recovery;
+    if (!recovery.valid(question) || payload.recovery?.answer) {
+      try { question = recovery.create(payload.recovery?.question, payload.recovery?.answer); }
+      catch (error) { return { ok: false, error: error.message }; }
+    }
     const salt = crypto.randomBytes(16).toString('hex');
-    state.security = { salt, hash: derivePassword(next, salt), iterations: PASSWORD_ITERATIONS };
+    state.security = { salt, hash: derivePassword(next, salt), iterations: PASSWORD_ITERATIONS, recovery: question };
+    recoveryGrant = null;
     flushState();
     notify();
     return { ok: true, ...securitySnapshot() };
+  });
+  ipcMain.handle('dayan:recovery-input', (event, enabled) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || !securityLocked) return false;
+    recoveryEditing = enabled === true;
+    keyboardGuard?.setTextInput(recoveryEditing);
+    return true;
+  });
+  ipcMain.handle('dayan:recovery-verify', (event, answer) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || !securityLocked) return { ok: false, error: '请求无效' };
+    recoveryGrant = null;
+    const result = recovery.verify(state.security?.recovery, answer);
+    flushState();
+    if (!result.ok) return result;
+    recoveryGrant = { token: crypto.randomBytes(32).toString('hex'), sender: event.sender.id, expires: Date.now() + 300000 };
+    return { ok: true, token: recoveryGrant.token };
+  });
+  ipcMain.handle('dayan:recovery-reset', (event, payload) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || !securityLocked || !recoveryGrant || recoveryGrant.sender !== event.sender.id || recoveryGrant.expires < Date.now() || payload?.token !== recoveryGrant.token) return { ok: false, error: '验证已失效，请重新回答密保问题' };
+    if (!/^\d{4,16}$/.test(payload?.next)) return { ok: false, error: '密码必须是 4 至 16 位数字' };
+    const salt = crypto.randomBytes(16).toString('hex');
+    state.security = { salt, hash: derivePassword(payload.next, salt), iterations: PASSWORD_ITERATIONS, recovery: state.security.recovery };
+    recoveryGrant = null;
+    flushState();
+    return { ok: true };
   });
   ipcMain.handle('dayan:security-unlock-input', (event, enabled) => {
     if (!trusted(event) || !securityLocked || typeof enabled !== 'boolean') return false;
@@ -845,7 +889,8 @@ function setupIPC() {
     });
   });
   ipcMain.handle('dayan:security-lock', async (event) => {
-    if (!trusted(event) || !passwordRecord() || policyOperation || lockStarting || securityLocked) return false;
+    if (!trusted(event) || !passwordRecord() || !recovery.valid(state.security?.recovery) || policyOperation || lockStarting || securityLocked) return false;
+    presentationEditor.close();
     lockStarting = true;
     unlockInputEnabled = false;
     try {
@@ -885,6 +930,7 @@ function setupIPC() {
   ipcMain.handle('dayan:security-verify', async (event, password) => {
     if (!trusted(event) || !securityLocked || !verifyPassword(password)) return false;
     securityLocked = false;
+    recoveryGrant = null; recoveryEditing = false;
     unlockInputEnabled = false;
     await keyboardGuard?.stop();
     mainWindow.setMinimizable(true);
@@ -984,7 +1030,7 @@ function createWindow() {
     if (input.type !== 'keyDown') return;
     if (securityLocked && (['F11', 'Escape'].includes(input.key) || (input.alt && input.key === 'F4') || (input.control && input.shift && input.key === 'Escape'))) event.preventDefault();
     if (securityLocked) {
-      const allowed = unlockInputEnabled && !input.control && !input.alt && !input.meta && !input.shift && (/^\d$/.test(input.key) || ['Backspace', 'Enter'].includes(input.key));
+      const allowed = unlockInputEnabled && !input.control && !input.alt && !input.meta && (recoveryEditing ? input.key.length === 1 || ['Backspace', 'Enter', 'Shift', 'Process', 'Unidentified'].includes(input.key) : !input.shift && (/^\d$/.test(input.key) || ['Backspace', 'Enter'].includes(input.key)));
       if (!allowed) event.preventDefault();
     }
     if ((input.control || input.meta) && ['+', '-', '=', '0'].includes(input.key)) event.preventDefault();
@@ -1024,6 +1070,7 @@ else {
       enabled: () => Boolean(mainWindow && !mainWindow.isDestroyed() && desktopWindowHosted && !securityLocked && presentationRequested && !mainWindow.isMinimized()),
       onAction: async action => {
         if (action === 'close') { mainWindow.close(); return; }
+        if (['settings-toggle', 'style-toggle', 'background'].includes(action)) { await presentationEditor.open(action); return; }
         if (action === 'lock' && passwordRecord()) { mainWindow.webContents.send('dayan:desktop-command', action); return; }
         await leavePresentation();
         if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1033,6 +1080,7 @@ else {
       }
     });
     const updateDisplayBounds = async () => {
+      presentationEditor.close();
       if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized()) return;
       if (isPresentationFullscreen()) await applyPresentationWindow(true);
       else await queueWindowedRestore();
@@ -1046,6 +1094,7 @@ else {
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
   app.on('before-quit', () => {
     quitting = true;
+    presentationEditor.close();
     clearTimeout(desktopReconcileTimer);
     clearTimeout(automaticUpdateTimer);
     clearInterval(trayReconcileInterval);

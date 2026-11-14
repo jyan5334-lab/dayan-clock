@@ -99,7 +99,7 @@ async function quit() {
   assert.equal(await page.locator('[data-variant]:not([hidden]) [data-background="lunar"]').getAttribute('aria-pressed'), 'true');
   await action('最小化（回到窗口）');
   await page.waitForSelector('html[data-fullscreen=false]');
-  assert.equal((await page.evaluate(() => window.dayan.securitySetPassword({ current: '', next: '123456' }))).ok, true);
+  assert.equal((await page.evaluate(() => window.dayan.securitySetPassword({ current: '', next: '123456', recovery: { question: 'teacher', answer: 'Test teacher' } }))).ok, true);
   await page.evaluate(() => window.dayan.securityLock());
   await page.waitForSelector('html.locked');
   assert.equal(await desktop.evaluate(() => globalThis.__dayanTrayMenu.items.filter(item => item.type !== 'separator').every(item => !item.enabled)), true);

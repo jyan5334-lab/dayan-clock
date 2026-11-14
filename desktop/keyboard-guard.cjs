@@ -13,7 +13,7 @@ function createKeyboardGuard(userData, { onKey, onStopped }) {
   if (!fs.existsSync(executable)) fs.writeFileSync(executable, bytes);
   let session;
   const send = current => {
-    if (current?.child.stdin.writable) current.child.stdin.write(JSON.stringify({ command: 'state', input: current.input }) + '\n');
+    if (current?.child.stdin.writable) current.child.stdin.write(JSON.stringify({ command: 'state', input: current.input, text: current.text === true }) + '\n');
   };
   return {
     isActive: () => Boolean(session?.ready),
@@ -50,6 +50,7 @@ function createKeyboardGuard(userData, { onKey, onStopped }) {
       current.heartbeat.unref();
     },
     setInput(enabled) { if (session) { session.input = enabled === true; send(session); } },
+    setTextInput(enabled) { if (session) { session.text = enabled === true; send(session); } },
     async stop() {
       const current = session;
       if (!current) return;

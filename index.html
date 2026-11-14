@@ -59,8 +59,27 @@
           <button type="button" data-unlock-key="7">7</button><button type="button" data-unlock-key="8">8</button><button type="button" data-unlock-key="9">9</button>
           <button type="button" id="unlock-system-keyboard" aria-label="打开系统键盘" title="打开系统键盘"><i data-lucide="keyboard"></i></button><button type="button" data-unlock-key="0">0</button><button type="button" data-unlock-key="Backspace" aria-label="删除一位"><i data-lucide="delete"></i></button>
         </div>
-        <button type="submit">解锁</button>
+        <div class="unlock-actions"><button type="submit">解锁</button><button id="forgot-password" class="secondary-button" type="button">忘记密码</button></div>
       </form>
+      <form id="recovery-form" hidden>
+        <strong>密保验证</strong>
+        <p id="recovery-question"></p>
+        <label class="sr-only" for="recovery-answer">密保答案</label>
+        <input id="recovery-answer" type="password" autocomplete="off" maxlength="128" placeholder="输入密保答案" required>
+        <button type="submit">验证密保答案</button>
+        <button id="recovery-back" type="button" class="secondary-button">返回密码解锁</button>
+      </form>
+      <form id="recovery-reset-form" hidden>
+        <strong>设置新密码</strong>
+        <input id="recovery-new-password" type="password" inputmode="numeric" autocomplete="new-password" maxlength="16" placeholder="设置 4 至 16 位数字密码" required aria-label="重设密码">
+        <input id="recovery-confirm-password" type="password" inputmode="numeric" autocomplete="new-password" maxlength="16" placeholder="再次输入数字密码" required aria-label="确认重设密码">
+        <button type="submit">保存新密码并解锁</button>
+        <button id="recovery-reset-back" type="button" class="secondary-button">返回密码解锁</button>
+      </form>
+      <div id="recovery-keyboard" hidden role="group" aria-label="密保输入键盘">
+        <div id="recovery-letters"></div>
+        <div class="recovery-keyboard-actions"><button type="button" data-recovery-key="Backspace" aria-label="删除一位"><i data-lucide="delete"></i></button><button type="button" data-recovery-key=" ">空格</button><button id="recovery-system-keyboard" type="button"><i data-lucide="keyboard"></i><span>系统键盘</span></button></div>
+      </div>
       <p id="unlock-error" class="security-error" role="alert" hidden></p>
     </div>
   </div>
@@ -78,6 +97,11 @@
         <input id="new-password" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="new-password" placeholder="设置 4 至 16 位数字密码" maxlength="16" required>
         <label class="sr-only" for="confirm-password">确认密码</label>
         <input id="confirm-password" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="new-password" placeholder="再次输入数字密码" maxlength="16" required>
+        <label for="security-question">密保问题</label>
+        <select id="security-question" required></select>
+        <input id="security-answer" type="password" autocomplete="off" placeholder="填写不易忘记的密保答案" maxlength="128" aria-label="设置密保答案">
+        <input id="security-answer-confirm" type="password" autocomplete="off" placeholder="再次输入密保答案" maxlength="128" aria-label="确认密保答案">
+        <p id="recovery-privacy">本软件完全在本地运行，密码和密保答案的校验数据仅保存在本机，不上传云端。请选择一个不易忘记的问题并牢记答案，用于忘记锁屏密码时验证和重置。建议避免使用他人容易猜到的答案；本机数据丢失后无法通过云端找回。</p>
         <button type="submit">保存密码</button>
       </form>
       <p id="security-error" class="security-error" role="alert" hidden></p>

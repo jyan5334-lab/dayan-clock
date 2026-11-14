@@ -29,7 +29,7 @@ internal static class KeyboardGuard {
   private static readonly AutoResetEvent available = new AutoResetEvent(false);
   private static readonly Dictionary<uint, string> keypad = new Dictionary<uint, string> { { 0x52, "0" }, { 0x4F, "1" }, { 0x50, "2" }, { 0x51, "3" }, { 0x4B, "4" }, { 0x4C, "5" }, { 0x4D, "6" }, { 0x47, "7" }, { 0x48, "8" }, { 0x49, "9" } };
   private static IntPtr hook, window;
-  private static volatile bool inputEnabled, stopping;
+  private static volatile bool inputEnabled, textEnabled, stopping;
   private static long lastHeartbeat;
   private static bool Modifier(uint key) { return key == 0x10 || key == 0x11 || key == 0x12 || key == 0x5B || key == 0x5C || (key >= 0xA0 && key <= 0xA5); }
   private static IntPtr Filter(int code, IntPtr message, IntPtr data) {
@@ -38,7 +38,16 @@ internal static class KeyboardGuard {
     bool down = message.ToInt64() == 0x100 || message.ToInt64() == 0x104;
     if (Modifier(key.Key)) {
       if (down) heldModifiers.Add(key.Key); else heldModifiers.Remove(key.Key);
-    } else if (down && inputEnabled && heldModifiers.Count == 0) {
+      // Clear Ctrl/Alt/Shift already held when locking, before allowing recovery text.
+      if (!down && key.Key != 0x5B && key.Key != 0x5C && initialModifiers.Remove(key.Key)) return CallNextHookEx(hook, code, message, data);
+    }
+    // Text is restricted to the application's recovery form; Windows shortcuts stay blocked.
+    if (inputEnabled && textEnabled && GetForegroundWindow() == window) {
+      bool unsafeModifier = false;
+      foreach (uint modifier in heldModifiers) if (modifier != 0x10 && modifier != 0xA0 && modifier != 0xA1) unsafeModifier = true;
+      bool textKey = (key.Key >= 0x30 && key.Key <= 0x5A) || (key.Key >= 0x60 && key.Key <= 0x69) || (key.Key >= 0xBA && key.Key <= 0xE2) || key.Key == 0xE5 || key.Key == 0xE7 || key.Key == 0x20 || key.Key == 0x08 || key.Key == 0x0D || key.Key == 0x10 || key.Key == 0xA0 || key.Key == 0xA1;
+      if (!unsafeModifier && textKey) return CallNextHookEx(hook, code, message, data);
+    } else if (!Modifier(key.Key) && down && inputEnabled && heldModifiers.Count == 0) {
       string value = null;
       if (key.Key >= 0x30 && key.Key <= 0x39) value = ((char)key.Key).ToString();
       else if (key.Key >= 0x60 && key.Key <= 0x69) value = ((char)('0' + key.Key - 0x60)).ToString();
@@ -61,6 +70,7 @@ internal static class KeyboardGuard {
         var command = json.Deserialize<Dictionary<string, object>>(line);
         if (command["command"].ToString() == "stop") break;
         inputEnabled = command.ContainsKey("input") && command["input"] is bool && (bool)command["input"];
+        textEnabled = command.ContainsKey("text") && command["text"] is bool && (bool)command["text"];
         Interlocked.Exchange(ref lastHeartbeat, Stopwatch.GetTimestamp());
       }
     } catch {}
