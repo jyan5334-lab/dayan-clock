@@ -40,7 +40,7 @@ async function quit() {
   let page = await launch(true);
   await page.waitForSelector('html[data-fullscreen=true]');
   const menu = await desktop.evaluate(() => globalThis.__dayanTrayMenu.items.map(item => item.label));
-  assert.deepEqual(menu, ['设置', '切换样式', '切换背景', '最小化（回到窗口）', '', '退出']);
+  assert.deepEqual(menu, ['设置', '切换样式', '切换背景', '锁屏', '最小化（回到窗口）', '', '退出']);
   await action('最小化（回到窗口）');
   await page.waitForSelector('html[data-fullscreen=false]');
   await page.waitForTimeout(200);

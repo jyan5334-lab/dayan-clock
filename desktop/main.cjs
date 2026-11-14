@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, Menu, Tray, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Menu, Tray, dialog, globalShortcut } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -37,6 +37,7 @@ let keyboardGuard, lockStarting = false, unlockInputEnabled = false;
 let configuredAutoStart;
 const presentationEditor = createPresentationEditor();
 let recoveryGrant = null, recoveryEditing = false;
+let lockDesktop, shortcutError = '';
 const stateFile = () => path.join(app.getPath('userData'), 'preferences.json');
 
 function normalizeDisplaySettings(value) {
@@ -473,7 +474,28 @@ function verifyPassword(password) {
   return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
 }
 function securitySnapshot() {
-  return { locked: securityLocked, passwordConfigured: Boolean(passwordRecord()), recoveryConfigured: recovery.valid(state.security?.recovery), recoveryQuestionId: state.security?.recovery?.question || '', recoveryQuestion: recovery.QUESTIONS.find(item => item.id === state.security?.recovery?.question)?.label || '', recoveryQuestions: recovery.QUESTIONS, keyboardGuardActive: process.platform === 'win32' ? Boolean(keyboardGuard?.isActive()) : null };
+  return { locked: securityLocked, passwordConfigured: Boolean(passwordRecord()), recoveryConfigured: recovery.valid(state.security?.recovery), recoveryQuestionId: state.security?.recovery?.question || '', recoveryQuestion: recovery.QUESTIONS.find(item => item.id === state.security?.recovery?.question)?.label || '', recoveryQuestions: recovery.QUESTIONS, lockShortcut: state.lockShortcut || '', shortcutError, keyboardGuardActive: process.platform === 'win32' ? Boolean(keyboardGuard?.isActive()) : null };
+}
+function configureLockShortcut(value) {
+  if (typeof value !== 'string' || value.length > 60) return { ok: false, error: '快捷键无效' };
+  const parts = value.split('+'), key = parts.pop();
+  if (value && (!/^(?:[A-Z0-9]|F(?:[1-9]|1\d|2[0-4]))$/.test(key) || !parts.length || parts.some(mod => !['Control', 'Alt', 'Shift'].includes(mod)) || new Set(parts).size !== parts.length || !parts.some(mod => ['Control', 'Alt'].includes(mod)))) return { ok: false, error: '请使用 Ctrl 或 Alt 搭配字母、数字或功能键' };
+  const next = value ? [...['Control', 'Alt', 'Shift'].filter(mod => parts.includes(mod)), key].join('+') : '';
+  const previous = state.lockShortcut || '';
+  if (next && !(next === previous && globalShortcut.isRegistered(next))) {
+    if (globalShortcut.isRegistered(next)) return { ok: false, error: '该快捷键已被系统或其他程序占用，请更换组合' };
+    try {
+      if (!globalShortcut.register(next, () => {
+        if (securityLocked || lockStarting) return;
+        if (!passwordRecord() || !recovery.valid(state.security?.recovery)) presentationEditor.open('lock-settings').catch(console.error);
+        else lockDesktop().catch(error => console.error('Shortcut lock failed:', error.message));
+      })) return { ok: false, error: '该快捷键已被系统或其他程序占用，请更换组合' };
+    } catch { return { ok: false, error: '该快捷键无法注册，请更换组合' }; }
+  }
+  if (previous && previous !== next && globalShortcut.isRegistered(previous)) globalShortcut.unregister(previous);
+  state.lockShortcut = next;
+  shortcutError = '';
+  return { ok: true, shortcut: next };
 }
 function isPresentationFullscreen() {
   return Boolean(mainWindow && !mainWindow.isDestroyed() && (presentationRequested || mainWindow.isFullScreen() || mainWindow.isKiosk()));
@@ -537,8 +559,8 @@ async function runTrayAction(action) {
   }
   trayActionBusy = true;
   try {
-    const command = { settings: 'settings-toggle', style: 'style-toggle', background: 'background' }[action];
-    if (isPresentationFullscreen() && command) { await presentationEditor.open(command); return true; }
+    const command = { settings: 'settings-toggle', style: 'style-toggle', background: 'background', lock: 'lock-settings' }[action];
+    if (command && (isPresentationFullscreen() || action === 'lock')) { await presentationEditor.open(command); return true; }
     presentationEditor.close();
     if (isPresentationFullscreen()) await leavePresentation();
     await new Promise(resolve => setTimeout(resolve, 140));
@@ -592,6 +614,7 @@ function refreshTrayMenu() {
     { label: '设置', enabled, click: () => runTrayAction('settings').catch(error => console.error('Tray settings failed:', error.message)) },
     { label: '切换样式', enabled, click: () => runTrayAction('style').catch(error => console.error('Tray style menu failed:', error.message)) },
     { label: '切换背景', enabled, click: () => runTrayAction('background').catch(error => console.error('Tray background menu failed:', error.message)) },
+    { label: '锁屏', enabled, click: () => runTrayAction('lock').catch(error => console.error('Tray lock menu failed:', error.message)) },
     { label: '最小化（回到窗口）', enabled, click: () => runTrayAction('minimize').catch(error => console.error('Tray minimize failed:', error.message)) },
     { type: 'separator' },
     { label: '退出', enabled, click: () => runTrayAction('exit').catch(error => console.error('Tray exit failed:', error.message)) }
@@ -743,6 +766,12 @@ function notify() {
 function setupIPC() {
   ipcMain.handle('dayan:editor-ready', event => presentationEditor.ready(event.sender));
   ipcMain.handle('dayan:editor-close', event => { if (event.sender === presentationEditor.window?.webContents) presentationEditor.close(); });
+  ipcMain.handle('dayan:lock-shortcut', (event, value) => {
+    if (!trusted(event) || securityLocked || lockStarting) return { ok: false, error: '请先解锁桌面' };
+    const result = configureLockShortcut(value);
+    if (result.ok) { flushState(); notify(); }
+    return result;
+  });
   ipcMain.handle('dayan:load', event => trusted(event) ? { widget: state.widget, style: state.style, displaySettings: state.displaySettings, windowLayers: normalizeWindowLayers(state.windowLayers), presentationLayout: presentationLayout(), autoStart: state.autoStart !== false, appVersion: app.getVersion(), showSettingsOnStartup: state.settingsGuideVersion !== 1, pinned: state.pinned === true, fullscreen: isPresentationFullscreen(), ...securitySnapshot() } : null);
   ipcMain.handle('dayan:security-policy-status', event => trusted(event) ? windowsLockdownStatus() : { supported: false, enabled: false, missing: [], error: '请求无效' });
   ipcMain.handle('dayan:security-policy-enable', event => trusted(event) && !securityLocked ? enableWindowsLockdown() : { ok: false, error: '请先解锁时钟' });
@@ -833,7 +862,7 @@ function setupIPC() {
     return true;
   });
   ipcMain.handle('dayan:security-set-password', (event, payload) => {
-    if (!trusted(event) || securityLocked || !payload || typeof payload !== 'object') return { ok: false, error: '请求无效' };
+    if (!trusted(event) || securityLocked || lockStarting || !payload || typeof payload !== 'object') return { ok: false, error: '请求无效' };
     const current = typeof payload.current === 'string' ? payload.current : '';
     const next = typeof payload.next === 'string' ? payload.next : '';
     if (!/^\d{4,16}$/.test(next)) return { ok: false, error: '密码必须是 4 至 16 位数字' };
@@ -857,21 +886,23 @@ function setupIPC() {
     return true;
   });
   ipcMain.handle('dayan:recovery-verify', (event, answer) => {
-    if (!mainWindow || event.sender !== mainWindow.webContents || !securityLocked) return { ok: false, error: '请求无效' };
+    if (!trusted(event) || lockStarting || (securityLocked && event.sender !== mainWindow?.webContents)) return { ok: false, error: '请求无效' };
     recoveryGrant = null;
-    const result = recovery.verify(state.security?.recovery, answer);
+    const text = typeof answer === 'string' ? answer : answer?.question === state.security?.recovery?.question ? answer.answer : '';
+    const result = recovery.verify(state.security?.recovery, text);
     flushState();
     if (!result.ok) return result;
-    recoveryGrant = { token: crypto.randomBytes(32).toString('hex'), sender: event.sender.id, expires: Date.now() + 300000 };
+    recoveryGrant = { token: crypto.randomBytes(32).toString('hex'), sender: event.sender.id, locked: securityLocked, expires: Date.now() + 300000 };
     return { ok: true, token: recoveryGrant.token };
   });
   ipcMain.handle('dayan:recovery-reset', (event, payload) => {
-    if (!mainWindow || event.sender !== mainWindow.webContents || !securityLocked || !recoveryGrant || recoveryGrant.sender !== event.sender.id || recoveryGrant.expires < Date.now() || payload?.token !== recoveryGrant.token) return { ok: false, error: '验证已失效，请重新回答密保问题' };
+    if (!trusted(event) || lockStarting || !recoveryGrant || recoveryGrant.locked !== securityLocked || recoveryGrant.sender !== event.sender.id || recoveryGrant.expires < Date.now() || payload?.token !== recoveryGrant.token) return { ok: false, error: '验证已失效，请重新回答密保问题' };
     if (!/^\d{4,16}$/.test(payload?.next)) return { ok: false, error: '密码必须是 4 至 16 位数字' };
     const salt = crypto.randomBytes(16).toString('hex');
     state.security = { salt, hash: derivePassword(payload.next, salt), iterations: PASSWORD_ITERATIONS, recovery: state.security.recovery };
     recoveryGrant = null;
     flushState();
+    notify();
     return { ok: true };
   });
   ipcMain.handle('dayan:security-unlock-input', (event, enabled) => {
@@ -888,9 +919,8 @@ function setupIPC() {
       child.once('spawn', () => { child.unref(); resolve({ ok: true }); });
     });
   });
-  ipcMain.handle('dayan:security-lock', async (event) => {
-    if (!trusted(event) || !passwordRecord() || !recovery.valid(state.security?.recovery) || policyOperation || lockStarting || securityLocked) return false;
-    presentationEditor.close();
+  lockDesktop = async () => {
+    if (!passwordRecord() || !recovery.valid(state.security?.recovery) || policyOperation || lockStarting || securityLocked) return false;
     lockStarting = true;
     unlockInputEnabled = false;
     try {
@@ -910,6 +940,8 @@ function setupIPC() {
     // Preserve the ordinary window before kiosk expands its native bounds.
     preparePresentation();
     securityLocked = true;
+    recoveryGrant = null;
+    presentationEditor.close();
     updateWindow?.hide();
     resizeSession = null;
     mainWindow.setMinimizable(false);
@@ -926,7 +958,8 @@ function setupIPC() {
     };
     await forceKiosk();
     return true;
-  });
+  };
+  ipcMain.handle('dayan:security-lock', event => trusted(event) ? lockDesktop() : false);
   ipcMain.handle('dayan:security-verify', async (event, password) => {
     if (!trusted(event) || !securityLocked || !verifyPassword(password)) return false;
     securityLocked = false;
@@ -1064,7 +1097,12 @@ else {
         });
       } catch (error) { console.error('Keyboard guard unavailable:', error.message); }
     }
-    setupIPC(); createWindow(); createTray();
+    setupIPC();
+    if (state.lockShortcut) {
+      const result = configureLockShortcut(state.lockShortcut);
+      if (!result.ok) shortcutError = result.error;
+    }
+    createWindow(); createTray();
     if (desktopHost) wallpaperControls = createWallpaperControls({
       host: desktopHost,
       enabled: () => Boolean(mainWindow && !mainWindow.isDestroyed() && desktopWindowHosted && !securityLocked && presentationRequested && !mainWindow.isMinimized()),
@@ -1094,6 +1132,7 @@ else {
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
   app.on('before-quit', () => {
     quitting = true;
+    globalShortcut.unregisterAll();
     presentationEditor.close();
     clearTimeout(desktopReconcileTimer);
     clearTimeout(automaticUpdateTimer);

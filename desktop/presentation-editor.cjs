@@ -8,14 +8,14 @@ function createPresentationEditor() {
     async open(action) {
       pending = action;
       const area = screen.getPrimaryDisplay().workArea;
-      const width = Math.min(800, area.width), height = Math.min(680, area.height);
+      const width = Math.min(600, area.width), height = Math.min(660, area.height);
       const bounds = { x: area.x + Math.round((area.width - width) / 2), y: area.y + Math.round((area.height - height) / 2), width, height };
       if (window && !window.isDestroyed()) {
-        window.setBounds(bounds, false); window.show(); window.focus();
+        window.show(); window.focus();
         window.webContents.send('dayan:desktop-command', action);
         return;
       }
-      window = new BrowserWindow({ ...bounds, frame: false, transparent: true, backgroundColor: '#00000000', resizable: false, skipTaskbar: true, show: false, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true } });
+      window = new BrowserWindow({ ...bounds, frame: false, transparent: true, backgroundColor: '#00000000', resizable: false, movable: true, skipTaskbar: true, show: false, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true } });
       window.setAlwaysOnTop(true, 'floating');
       window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
       window.webContents.on('will-navigate', event => event.preventDefault());

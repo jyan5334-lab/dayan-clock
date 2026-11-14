@@ -323,6 +323,11 @@
   };
   bridge.onWindowState(syncWindow);
   bridge.onDesktopCommand(action => {
+    if (editorMode) {
+      securityModal.hidden = true;
+      document.getElementById('editor-title').textContent = action === 'background' ? '切换背景' : '切换样式';
+      document.querySelectorAll('.background-picker').forEach(picker => { picker.hidden = true; });
+    }
     if (action === 'background') {
       closeMenu();
       settingsModal.hidden = true;
@@ -334,6 +339,8 @@
     } else if (action === 'settings-toggle') {
       closeMenu();
       if (settingsModal.hidden) settingsToggle.click();
+    } else if (action === 'lock-settings') {
+      closeMenu(); settingsModal.hidden = true;
     } else if (action === 'lock') lockButton.click();
   });
 
@@ -345,9 +352,9 @@
   });
   document.querySelectorAll('[data-style]').forEach(button => button.addEventListener('click', () => {
     if (security.locked) return;
-    selectStyle(Number(button.dataset.style)); closeMenu(); save().then(() => { if (editorMode) bridge.editorClose(); });
+    selectStyle(Number(button.dataset.style)); if (!editorMode) closeMenu(); save();
   }));
-  document.addEventListener('pointerdown', event => { if (!event.target.closest('#style-menu,#style-toggle')) closeMenu(); });
+  document.addEventListener('pointerdown', event => { if (!editorMode && !event.target.closest('#style-menu,#style-toggle')) closeMenu(); });
 
   securityClose.addEventListener('click', closeSecurityModal);
   settingsToggle.addEventListener('click', () => openSettings());
@@ -374,7 +381,7 @@
   document.getElementById('security-open-settings').addEventListener('click', () => openSettings());
   settingsPassword.addEventListener('click', () => {
     settingsModal.hidden = true;
-    returnToSettings = true;
+    returnToSettings = document.getElementById('lock-settings-modal').hidden;
     openSecurityModal();
   });
   const runPolicyAction = async action => {
@@ -539,11 +546,10 @@
     dispatchEvent(new CustomEvent('openai:set_globals', { detail: { globals: { widgetState: widget } } }));
   });
   if (editorMode) {
-    const close = document.createElement('button'); close.id = 'editor-close'; close.type = 'button'; close.setAttribute('aria-label', '关闭菜单'); close.innerHTML = '<i data-lucide="x"></i>';
-    close.addEventListener('click', () => bridge.editorClose()); document.body.append(close);
+    const header = document.createElement('header'); header.className = 'editor-header'; header.innerHTML = '<h2 id="editor-title">切换样式</h2><button id="editor-close" class="settings-icon" type="button" aria-label="关闭菜单" title="关闭菜单"><i data-lucide="x"></i></button>';
+    header.querySelector('button').addEventListener('click', () => bridge.editorClose()); document.body.append(header);
     document.addEventListener('keydown', event => { if (event.key === 'Escape') bridge.editorClose(); });
     document.addEventListener('click', event => {
-      if (event.target.closest('[data-background]')) save().then(() => bridge.editorClose());
       if (event.target.closest('[data-background-close]')) bridge.editorClose();
     });
   }

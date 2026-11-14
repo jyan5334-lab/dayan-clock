@@ -161,7 +161,7 @@
         if(opening)q('[data-background]')?.focus();return;
       }
       if(b.hasAttribute('data-background-close')){closeBackgrounds();q('.background-toggle').focus();return;}
-      if(b.dataset.background){s.background=b.dataset.background;closeBackgrounds();render();save();return;}
+      if(b.dataset.background){s.background=b.dataset.background;if(!document.documentElement.classList.contains('presentation-editor'))closeBackgrounds();render();save();return;}
       if(b.dataset.mode==='clock'){s.clock=true;q('.error').textContent='';}
       else if(b.dataset.mode){if(b.dataset.mode!==s.mode){reset();s.mode=b.dataset.mode;}s.clock=false;}
       if(b.dataset.action==='reset')reset();

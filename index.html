@@ -15,6 +15,7 @@
   <script defer src="renderer/styles.js"></script>
   <script defer src="renderer/update.js"></script>
   <script defer src="renderer/desktop.js"></script>
+  <script defer src="renderer/lock-settings.js"></script>
 </head>
 <body>
   <main id="desktop-stage">
@@ -216,6 +217,44 @@
         <button id="policy-restore" class="policy-secondary" type="button" disabled><i data-lucide="undo-2"></i><span>恢复原有策略</span></button>
         <button id="settings-password" class="policy-secondary" type="button"><i data-lucide="key-round"></i><span>设置锁屏密码</span></button>
       </footer>
+    </div>
+  </div>
+  <div id="lock-settings-modal" hidden role="dialog" aria-modal="true" aria-labelledby="lock-settings-title">
+    <div class="settings-panel lock-settings-panel">
+      <header class="settings-header"><h2 id="lock-settings-title">锁屏</h2><button id="lock-settings-close" class="settings-icon" type="button" aria-label="关闭锁屏设置" title="关闭锁屏设置"><i data-lucide="x"></i></button></header>
+      <div class="settings-body">
+        <section class="lock-section">
+          <h3>立即锁屏</h3>
+          <p id="lock-ready-status" class="lock-notice"></p>
+          <button id="lock-now" class="policy-enable" type="button"><i data-lucide="lock-keyhole"></i><span>立即锁屏</span></button>
+          <button id="lock-setup" class="policy-secondary" type="button" hidden><i data-lucide="key-round"></i><span>设置密码与密保</span></button>
+        </section>
+        <section class="lock-section">
+          <h3>锁屏快捷键</h3>
+          <form id="lock-shortcut-form">
+            <label for="lock-shortcut">快捷键</label>
+            <div class="shortcut-entry"><input id="lock-shortcut" readonly placeholder="点击后按下 Ctrl / Alt 与其他按键" aria-describedby="lock-shortcut-status"><button id="lock-shortcut-clear" class="settings-icon" type="button" title="清空快捷键" aria-label="清空快捷键"><i data-lucide="eraser"></i></button></div>
+            <button class="policy-secondary" type="submit"><i data-lucide="save"></i><span>保存快捷键</span></button>
+          </form>
+          <p id="lock-shortcut-status" class="lock-notice" role="status"></p>
+        </section>
+        <section class="lock-section">
+          <h3>更改锁屏密码</h3>
+          <div class="lock-password-modes" role="group" aria-label="改密方式"><button type="button" class="policy-secondary" data-password-method="current" aria-pressed="true">原密码修改</button><button type="button" class="policy-secondary" data-password-method="recovery" aria-pressed="false">密保重置</button></div>
+          <form id="lock-password-form">
+            <label id="lock-current-label">原密码<input id="lock-current-password" type="password" inputmode="numeric" maxlength="16" autocomplete="current-password" required></label>
+            <div id="lock-recovery-fields" hidden>
+              <label>密保问题<select id="lock-recovery-question"></select></label>
+              <label>密保答案<input id="lock-recovery-answer" type="password" maxlength="128" autocomplete="off"></label>
+            </div>
+            <label>新密码<input id="lock-new-password" type="password" inputmode="numeric" pattern="[0-9]{4,16}" minlength="4" maxlength="16" autocomplete="new-password" required></label>
+            <label>确认新密码<input id="lock-confirm-password" type="password" inputmode="numeric" pattern="[0-9]{4,16}" minlength="4" maxlength="16" autocomplete="new-password" required></label>
+            <button class="policy-enable" type="submit"><i data-lucide="check"></i><span>保存新密码</span></button>
+          </form>
+          <p id="lock-password-status" class="lock-notice" role="status"></p>
+          <p class="lock-notice">密码及密保仅保存在本机，不上传云端。请牢记密保答案；只有之前保存的密保问题与答案才能用于重置。</p>
+        </section>
+      </div>
     </div>
   </div>
   <div class="resize-corner top-left" data-corner="top-left" aria-hidden="true"></div>

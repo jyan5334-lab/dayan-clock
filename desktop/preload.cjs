@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('dayan', {
   recoveryReset: payload => ipcRenderer.invoke('dayan:recovery-reset', payload),
   editorReady: () => ipcRenderer.invoke('dayan:editor-ready'),
   editorClose: () => ipcRenderer.invoke('dayan:editor-close'),
+  setLockShortcut: value => ipcRenderer.invoke('dayan:lock-shortcut', value),
   onPreferences: callback => {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on('dayan:preferences', listener);
