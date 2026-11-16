@@ -115,6 +115,7 @@ let browser, desktop;
     assert.equal(await animation.locator('body').innerText(), '', `${scene.id}: source text must be hidden`);
     const rect = await canvas.boundingBox();
     assert.deepEqual({ x: rect.x, y: rect.y, width: rect.width, height: rect.height }, { x: 0, y: 0, width: 800, height: 500 });
+    assert.equal(await canvas.evaluate(node => getComputedStyle(node).objectFit), 'fill', `${scene.id}: canvas adapter must fill the wallpaper viewport without side bars`);
     let previous = await canvas.evaluate(node => node.toDataURL());
     for (const time of [0, 16.67, 33.34, 50.01, 100.02, 200.04, 400.08, 700.14]) {
       await animation.evaluate(time => window.stepAnimation(time), time);
@@ -127,8 +128,13 @@ let browser, desktop;
     const coverage = [];
     for (const [width, height] of [[800, 500], [1920, 1080], [3440, 1440], [1080, 1920]]) {
       await adapted.setViewportSize({ width, height });
+      await animation.evaluate(time => {
+        window.stepAnimation(time);
+        window.stepAnimation(time + 16.67);
+      }, 1000 + width + height);
       const box = await canvas.boundingBox();
       assert.deepEqual({ x: box.x, y: box.y, width: box.width, height: box.height }, { x: 0, y: 0, width, height }, `${scene.id}: canvas must cover ${width}x${height}`);
+      assert.equal(await canvas.evaluate(node => getComputedStyle(node).objectFit), 'fill', `${scene.id}: canvas fit changed at ${width}x${height}`);
       const screenshot = await adapted.screenshot({ path: path.join(output, `${scene.id}-${width}x${height}.png`) });
       const edges = await pixelReader.evaluate(async png => {
         const image = new Image(); image.src = `data:image/png;base64,${png}`; await image.decode();
@@ -137,6 +143,13 @@ let browser, desktop;
         return Array.from({ length: 16 }, (_, index) => ctx.getImageData(index % 2 ? image.width - 2 : 1, Math.floor(image.height * (index / 16 + .03)), 1, 1).data[3]).every(alpha => alpha === 255);
       }, screenshot.toString('base64'));
       assert.equal(edges, true, `${scene.id}: transparent pixels at ${width}x${height}`);
+      const painted = await canvas.evaluate(node => {
+        const sample = document.createElement('canvas'); sample.width = 8; sample.height = 8;
+        const sampleContext = sample.getContext('2d'); sampleContext.drawImage(node, 0, 0, 8, 8);
+        const pixels = sampleContext.getImageData(0, 0, 8, 8).data;
+        return new Set(Array.from({ length: pixels.length / 4 }, (_, index) => `${pixels[index * 4]},${pixels[index * 4 + 1]},${pixels[index * 4 + 2]}`)).size > 8;
+      });
+      assert.equal(painted, true, `${scene.id}: canvas was not painted after resizing to ${width}x${height}`);
       coverage.push({ width, height, painted: box, edges });
     }
     results.push({ scene: scene.id, sourcePreserved: true, controlsHidden: true, animationAdvances: true, coverage });

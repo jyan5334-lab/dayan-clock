@@ -10,7 +10,7 @@ const wallpaperStyle = `
 html, body { width:100%; height:100%; margin:0!important; overflow:hidden!important; background:#0d0b1e; }
 #wrap { width:100%; height:100%; display:block; position:relative; }
 #bar { display:none!important; }
-#cv { position:absolute!important; inset:0!important; width:100%!important; height:100%!important; max-width:none!important; border:0!important; border-radius:0!important; box-shadow:none!important; object-fit:contain!important; background:linear-gradient(180deg,#0d0b1e 0%,#282047 54%,#342747 100%); image-rendering:pixelated; }
+#cv { position:absolute!important; inset:0!important; width:100%!important; height:100%!important; max-width:none!important; border:0!important; border-radius:0!important; box-shadow:none!important; object-fit:fill!important; background:linear-gradient(180deg,#0d0b1e 0%,#282047 54%,#342747 100%); image-rendering:pixelated; }
 `;
 
 const textSuppressor = `
@@ -29,6 +29,7 @@ const textSuppressor = `
 
 const withStyle = source
   .replace('</style>', `${wallpaperStyle}</style>`)
+  .replace("window.addEventListener('resize', fit); fit();", "window.addEventListener('resize', fit); window.addEventListener('resize', () => { if (typeof draw === 'function') draw(); }); fit();")
   .replace('function drawHUD() {', 'function drawHUD() {\n  return;');
 const marker = '<script>\n(() => {';
 if (!withStyle.includes(marker)) throw new Error('fox quest source script marker not found');

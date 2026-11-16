@@ -1,6 +1,6 @@
 {
   "name": "dayan-clock",
-  "version": "1.6.28",
+  "version": "1.6.29",
   "description": "DAYAN Desktop - local desktop display, protection and timer tool",
   "author": "DAYAN",
   "license": "UNLICENSED",
@@ -39,7 +39,9 @@
     "productName": "DAYAN桌面",
     "executableName": "DAYANClock",
     "asar": true,
-    "asarUnpack": ["scripts/configure-startup.ps1"],
+    "asarUnpack": [
+      "scripts/configure-startup.ps1"
+    ],
     "compression": "maximum",
     "electronDist": "node_modules/electron/dist",
     "directories": {
