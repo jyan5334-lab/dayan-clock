@@ -11,6 +11,10 @@ const scenes = [
   { id: 'pelican-bike', file: 'pelican_bike.html', oldBars: [253, 246, 227] },
   { id: 'pelican-seaside', file: 'pelican_bike_seaside.html', oldBars: [43, 29, 58] }
 ];
+const canvasScenes = [
+  { id: 'fox-quest', file: 'fox_quest_wallpaper.html' }
+];
+assert.match(fs.readFileSync(path.join(root, 'assets/backgrounds/dynamic/derived/fox_quest_wallpaper.html'), 'utf8'), /function drawHUD\(\) \{\s+return;/, 'Fox wallpaper adapter must suppress HUD and progress bar');
 let browser, desktop;
 (async () => {
   browser = await chromium.launch({ headless: true, args: ['--allow-file-access-from-files'], ...(process.platform === 'win32' ? { channel: 'msedge' } : {}) });
@@ -99,6 +103,44 @@ let browser, desktop;
     assert.equal(await animation.locator('body > svg').evaluate(svg => svg.outerHTML), previous, 'Resize must preserve the running animation document');
     results.push({ scene: scene.id, originalSvgIdentical: true, animationAdvances: true, animationFramesChecked: times.length, coverage });
     await source.close(); await adapted.close();
+  }
+  for (const scene of canvasScenes) {
+    const adapted = await context.newPage();
+    await adapted.goto(pathToFileURL(path.join(root, 'assets/backgrounds/dynamic/animation.html')).href + '?scene=' + scene.id);
+    await adapted.waitForSelector('html[data-ready=true]');
+    const animation = adapted.frames().find(frame => frame.url().endsWith('/derived/' + scene.file));
+    assert.ok(animation);
+    const canvas = animation.locator('#cv');
+    assert.equal(await animation.locator('#bar').isVisible(), false, `${scene.id}: controls must be hidden`);
+    assert.equal(await animation.locator('body').innerText(), '', `${scene.id}: source text must be hidden`);
+    const rect = await canvas.boundingBox();
+    assert.deepEqual({ x: rect.x, y: rect.y, width: rect.width, height: rect.height }, { x: 0, y: 0, width: 800, height: 500 });
+    let previous = await canvas.evaluate(node => node.toDataURL());
+    for (const time of [0, 16.67, 33.34, 50.01, 100.02, 200.04, 400.08, 700.14]) {
+      await animation.evaluate(time => window.stepAnimation(time), time);
+      const actual = await canvas.evaluate(node => node.toDataURL());
+      if (time > 0) assert.notEqual(actual, previous, `${scene.id}: animation must advance at ${time}`);
+      previous = actual;
+    }
+    await adapted.screenshot({ path: path.join(output, `preview-${scene.id}.png`) });
+    if (process.argv.includes('--update-previews')) fs.copyFileSync(path.join(output, `preview-${scene.id}.png`), path.join(root, 'assets/backgrounds/dynamic', `preview-${scene.id}.png`));
+    const coverage = [];
+    for (const [width, height] of [[800, 500], [1920, 1080], [3440, 1440], [1080, 1920]]) {
+      await adapted.setViewportSize({ width, height });
+      const box = await canvas.boundingBox();
+      assert.deepEqual({ x: box.x, y: box.y, width: box.width, height: box.height }, { x: 0, y: 0, width, height }, `${scene.id}: canvas must cover ${width}x${height}`);
+      const screenshot = await adapted.screenshot({ path: path.join(output, `${scene.id}-${width}x${height}.png`) });
+      const edges = await pixelReader.evaluate(async png => {
+        const image = new Image(); image.src = `data:image/png;base64,${png}`; await image.decode();
+        const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
+        const ctx = canvas.getContext('2d'); ctx.drawImage(image, 0, 0);
+        return Array.from({ length: 16 }, (_, index) => ctx.getImageData(index % 2 ? image.width - 2 : 1, Math.floor(image.height * (index / 16 + .03)), 1, 1).data[3]).every(alpha => alpha === 255);
+      }, screenshot.toString('base64'));
+      assert.equal(edges, true, `${scene.id}: transparent pixels at ${width}x${height}`);
+      coverage.push({ width, height, painted: box, edges });
+    }
+    results.push({ scene: scene.id, sourcePreserved: true, controlsHidden: true, animationAdvances: true, coverage });
+    await adapted.close();
   }
   await browser.close(); browser = null;
   fs.writeFileSync(path.join(data, 'preferences.json'), JSON.stringify({ settingsGuideVersion: 1, autoStart: false, style: 1 }));

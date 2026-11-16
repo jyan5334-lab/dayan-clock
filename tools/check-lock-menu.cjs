@@ -107,12 +107,18 @@ async function quit() { await app.evaluate(({ app }) => app.quit()); await app.c
     }
     await editor.screenshot({ path: path.join(data, `styles-${displayScope}.png`) });
     await menu('切换背景', editor); await drag(editor, '#editor-title');
-    for (const background of ['lunar', 'pelican-bike']) {
+    for (const background of ['lunar', 'pelican-bike', 'pelican-seaside']) {
       const choice = editor.locator(`[data-variant]:not([hidden]) [data-background="${background}"]`);
       assert.equal(await choice.count(), 1);
       await choice.click(); await page.waitForFunction(background => document.querySelector(`[data-variant]:not([hidden]) [data-background="${background}"]`).getAttribute('aria-pressed') === 'true', background);
       assert.equal(await editor.locator('[data-variant]:not([hidden]) .background-picker').isVisible(), true);
     }
+    const mediaStats = await editor.evaluate(() => ({
+      active: document.querySelectorAll('[data-variant]:not([hidden]) .wallpaper-media iframe').length,
+      hidden: [...document.querySelectorAll('[data-variant][hidden] .wallpaper-media iframe')].length
+    }));
+    assert.equal(mediaStats.active, 1, `Expected one active wallpaper frame: ${JSON.stringify(mediaStats)}`);
+    assert.equal(mediaStats.hidden, 0, `Hidden styles must not keep wallpaper frames alive: ${JSON.stringify(mediaStats)}`);
     await editor.screenshot({ path: path.join(data, `backgrounds-${displayScope}.png`) });
     assert.deepEqual(await bounds(page), wallpaper);
     const done = editor.waitForEvent('close'); await editor.locator('#editor-close').click(); await done;

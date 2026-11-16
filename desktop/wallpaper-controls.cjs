@@ -15,6 +15,8 @@ function createWallpaperControls({ enabled, host, onAction }) {
     if (!enabled()) { hide(); return; }
     const point = screen.getCursorScreenPoint();
     const display = screen.getDisplayNearestPoint(point);
+    const primary = screen.getPrimaryDisplay();
+    if (display.id !== primary.id) { hide(); return; }
     if (window?.isVisible()) {
       const rect = window.getBounds();
       if (point.x >= rect.x && point.x < rect.x + rect.width && point.y >= rect.y && point.y < rect.y + rect.height) lastInside = Date.now();
@@ -34,7 +36,7 @@ function createWallpaperControls({ enabled, host, onAction }) {
         window.webContents.on('will-navigate', event => event.preventDefault());
         await window.loadFile(path.join(__dirname, 'wallpaper-controls.html'));
       }
-      window.setBounds({ x:display.bounds.x + display.bounds.width - 372, y:display.bounds.y, width:348, height:42 }, false);
+      window.setBounds({ x:primary.bounds.x + primary.bounds.width - 372, y:primary.bounds.y, width:348, height:42 }, false);
       lastInside = Date.now();
       if (enabled()) window.showInactive();
     } catch (error) { console.error('Wallpaper toolbar failed:', error.message); }

@@ -150,11 +150,20 @@ window.timerBackgrounds = [
   },
   {
     "id": "pelican-seaside",
-    "label": "海边日落骑行",
+    "label": "傍晚风格的鹈鹕骑车",
     "group": "动态背景",
     "kind": "html",
     "originalColors": true,
     "src": "assets/backgrounds/dynamic/animation.html?scene=pelican-seaside",
     "thumb": "assets/backgrounds/dynamic/preview-pelican-seaside.png"
+  },
+  {
+    "id": "fox-quest",
+    "label": "小狐无限闯关",
+    "group": "动态背景",
+    "kind": "html",
+    "originalColors": true,
+    "src": "assets/backgrounds/dynamic/animation.html?scene=fox-quest",
+    "thumb": "assets/backgrounds/dynamic/preview-fox-quest.png"
   }
 ].map(item => ({ ...item, src: new URL(item.src, document.baseURI).href, thumb: item.thumb ? new URL(item.thumb, document.baseURI).href : undefined }));

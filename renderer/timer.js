@@ -57,14 +57,15 @@
     q('.unlock-launch').addEventListener('click',()=>root.dispatchEvent(new Event('dayan:show-unlock')));
     ['clock','watch','down','up'].forEach(mode=>q('.modes').append(q(`[data-mode="${mode}"]`)));
     const artwork=window.dayanStyles.attach(app,variants[i]);
-    let lastDisplay='',lastAction='',lastStatus='',lastBackground=null,lastMediaLayout=null;
+    let lastDisplay='',lastAction='',lastStatus='',lastBackground=null,lastMediaKey=null;
     function closeBackgrounds(){q('.background-picker').hidden=true;q('.background-toggle').setAttribute('aria-expanded','false');}
     function render() {
       const now=new Date();if(!s.running&&document.activeElement!==q('.minutes')&&document.activeElement!==q('.seconds')){q('.minutes').value=Math.floor(s.target/60000);q('.seconds').value=Math.floor(s.target/1000)%60;}
       const background=backgrounds.find(b=>b.id===s.background);
       const displayTiles=background&&presentationLayout?.scope==='all'&&presentationLayout.displays?.length?presentationLayout.displays:null;
       const mediaLayout=displayTiles?JSON.stringify({area:presentationLayout.area,displays:displayTiles}):'';
-      if(lastBackground!==s.background||lastMediaLayout!==mediaLayout){
+      const mediaKey=JSON.stringify({visible:!section.hidden,layout:mediaLayout});
+      if(lastBackground!==s.background||lastMediaKey!==mediaKey){
         app.classList.toggle('has-background',Boolean(background));
         app.classList.toggle('has-original-motion-background',Boolean(background?.originalColors));
         app.classList.toggle('has-wallpaper-media',Boolean(background));
@@ -72,7 +73,9 @@
         app.style.setProperty('--wallpaper','none');
         const media=q('.wallpaper-media');
         media.replaceChildren();
-        if(background){
+        // Only the visible style owns a live media element. Hidden styles are
+        // still real DOM sections, but their animation frames must stay stopped.
+        if(background&&!section.hidden){
           for(const display of displayTiles||[null]){
             const frame=document.createElement(background.kind==='html'?'iframe':background.kind==='video'?'video':'img');
             if(background.kind==='html'){
@@ -91,7 +94,7 @@
         }
         app.querySelectorAll('[data-background]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.background===s.background)));
         lastBackground=s.background;
-        lastMediaLayout=mediaLayout;
+        lastMediaKey=mediaKey;
       }
       let total=current(s);
       if(s.running&&s.mode==='down'&&total>=s.target) {s.elapsed=s.target;s.running=false;total=s.target;save();}
@@ -193,7 +196,15 @@
   root.addEventListener('dayan:display-settings',event=>{displaySettings=event.detail||displaySettings;models.forEach(model=>model.render());});
   root.addEventListener('dayan:checkpoint',save);
   refresh();
-  const ticker=setInterval(()=>{if(!root.isConnected){clearInterval(ticker);return;}if(sharedState.running||sharedState.clock)models.filter(m=>!m.section.hidden).forEach(m=>m.render());},40);
+  let ticker;
+  const tick=()=>{
+    if(!root.isConnected)return;
+    if(sharedState.running||sharedState.clock)models.filter(m=>!m.section.hidden).forEach(m=>m.render());
+    // The HTML wallpaper owns its own requestAnimationFrame loop. Keep the
+    // clock renderer responsive without repainting every style at 25 Hz.
+    ticker=setTimeout(tick,sharedState.running&&!sharedState.clock?40:250);
+  };
+  tick();
   window.addEventListener('openai:set_globals',event=>{
     const state=event.detail?.globals?.widgetState?.privateContent;
     if(state?.version!==2||JSON.stringify(state)===lastSave)return;

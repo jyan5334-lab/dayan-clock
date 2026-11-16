@@ -21,7 +21,7 @@ for (const relative of ['index.html', 'desktop/main.cjs', 'desktop/preload.cjs',
 const context = { window: {}, document: { baseURI: pathToFileURL(path.join(root, 'index.html')).href }, URL };
 vm.runInNewContext(read('renderer/backgrounds.js'), context);
 const backgrounds = context.window.timerBackgrounds;
-assert.equal(backgrounds.length, 27, 'Expected twenty-seven bundled wallpapers');
+assert.equal(backgrounds.length, 28, 'Expected twenty-eight bundled wallpapers');
 assert.equal(new Set(backgrounds.map(item => item.id)).size, backgrounds.length);
 for (const item of backgrounds) {
   assert.match(item.id, /^[a-z-]+$/);

@@ -1,10 +1,20 @@
 (() => {
   const scenes = {
     'pelican-bike': { file: 'pelican_bike.html', title: '鹈鹕骑自行车' },
-    'pelican-seaside': { file: 'pelican_bike_seaside.html', title: '鹈鹕的海边日落骑行' }
+    'pelican-seaside': { file: 'pelican_bike_seaside.html', title: '鹈鹕的海边日落骑行' },
+    'fox-quest': { file: 'fox_quest_wallpaper.html', title: '小狐无限闯关', kind: 'canvas' }
   };
   const scene = scenes[new URLSearchParams(location.search).get('scene')] || scenes['pelican-bike'];
   const frame = document.querySelector('iframe');
+  if (scene.kind === 'canvas') {
+    frame.title = scene.title;
+    document.title = scene.title;
+    frame.src = `derived/${scene.file}`;
+    frame.addEventListener('load', () => {
+      document.documentElement.dataset.ready = 'true';
+    });
+    return;
+  }
   let sourceSize, sceneStyle, extendScene;
   const fitScene = () => {
     if (!sourceSize) return;
