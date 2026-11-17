@@ -1,6 +1,6 @@
 {
   "name": "dayan-clock",
-  "version": "1.6.29",
+  "version": "1.6.30",
   "description": "DAYAN Desktop - local desktop display, protection and timer tool",
   "author": "DAYAN",
   "license": "UNLICENSED",
@@ -16,6 +16,7 @@
     "test:tray": "node desktop/build-update-host.cjs && node tools/check-tray.cjs",
     "test:desktop-startup": "node desktop/build-update-host.cjs && node tools/check-desktop-startup.cjs",
     "test:dynamic-backgrounds": "node tools/check-dynamic-backgrounds.cjs",
+    "test:background-switching": "node tools/check-background-switching.cjs",
     "test:keyboard": "node desktop/build-update-host.cjs && node tools/check-keyboard-guard.cjs",
     "test:unlock-layout": "node tools/check-unlock-layout.cjs",
     "test:display-settings": "node tools/check-display-settings.cjs",

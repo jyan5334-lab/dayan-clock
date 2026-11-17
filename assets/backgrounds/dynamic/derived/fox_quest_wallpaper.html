@@ -462,16 +462,28 @@ if (HEADLESS) { globalThis.__fox = { planGems, reset, step, get S() { return S; 
 
 /* ================= 渲染 ================= */
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
-let SC = 1;
+let SC = 1, sceneX = 0, sceneY = 0, viewLeft = 0, viewRight = W, paintX = 0, paintY = 0;
 function fit() {
-  const dpr = window.devicePixelRatio || 1;
-  SC = Math.max(1, Math.floor(Math.min(window.innerWidth * dpr / W, (window.innerHeight - 56) * dpr / H)));
-  cv.width = W * SC; cv.height = H * SC;
-  cv.style.width = (W * SC / dpr) + 'px'; cv.style.height = (H * SC / dpr) + 'px';
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = Math.max(1, Math.round(innerWidth * dpr));
+  cv.height = Math.max(1, Math.round(innerHeight * dpr));
+  SC = Math.min(cv.width / W, cv.height / H);
+  sceneX = (cv.width - W * SC) / 2;
+  sceneY = cv.height - H * SC;
+  viewLeft = -sceneX / SC;
+  viewRight = (cv.width - sceneX) / SC;
+  cv.dataset.scene = JSON.stringify({ x: sceneX / dpr, y: sceneY / dpr, width: W * SC / dpr, height: H * SC / dpr });
 }
-window.addEventListener('resize', fit); window.addEventListener('resize', () => { if (typeof draw === 'function') draw(); }); fit();
+window.addEventListener('resize', () => { fit(); draw(); }); fit();
 
-const R = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
+const R = (x, y, w, h, c) => {
+  ctx.fillStyle = c;
+  // Share device-pixel boundaries between adjoining pixel-art tiles.
+  const left = Math.round(x * SC + paintX), top = Math.round(y * SC + paintY);
+  ctx.fillRect((left - paintX) / SC, (top - paintY) / SC,
+    (Math.round((x + w) * SC + paintX) - left) / SC,
+    (Math.round((y + h) * SC + paintY) - top) / SC);
+};
 const FONT = '"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif';
 function text(str, x, y, size, color, align, shadow) {
   ctx.font = 'bold ' + size + 'px ' + FONT; ctx.textAlign = align || 'left'; ctx.textBaseline = 'middle';
@@ -485,9 +497,15 @@ const SKY = ['#141233', '#191539', '#201945', '#2a1d52', '#38225f', '#4a2869', '
 const STARS = []; for (let i = 0; i < 70; i++) STARS.push({ x: hash(i, 1) % W, y: hash(i, 2) % 120, p: hash(i, 3) % 100, s: hash(i, 4) % 5 === 0 ? 2 : 1 });
 
 function drawBG(cam) {
+  R(viewLeft, -sceneY / SC, viewRight - viewLeft, sceneY / SC + H, SKY[0]);
+  for (let y = -16; y > -sceneY / SC; y -= 24) for (let x = Math.floor(viewLeft / 35) * 35; x < viewRight; x += 35) {
+    const n = hash(x, y); ctx.globalAlpha = .4 + .3 * Math.sin(S.t / 50 + n % 10);
+    R(x + n % 25, y + n % 15, 1, 1, '#fff');
+  }
+  ctx.globalAlpha = 1;
   const bh = Math.ceil(205 / SKY.length);
-  for (let i = 0; i < SKY.length; i++) R(0, i * bh, W, bh + 1, SKY[i]);
-  R(0, SKY.length * bh, W, H, SKY[SKY.length - 1]);
+  for (let i = 0; i < SKY.length; i++) R(viewLeft, i * bh, viewRight - viewLeft, bh + 1, SKY[i]);
+  R(viewLeft, SKY.length * bh, viewRight - viewLeft, H, SKY[SKY.length - 1]);
   for (const s of STARS) {
     const tw = (S.t + s.p * 7) % 140;
     if (tw < 110) { ctx.globalAlpha = (1 - s.y / 130) * (tw < 8 ? 0.4 : 0.9); R(s.x, s.y, s.s, s.s, '#fff'); }
@@ -506,7 +524,7 @@ function drawBG(cam) {
     ctx.globalAlpha = 0.35; R(x, y, w, 3, '#f7a8a0'); R(x + 8, y - 2, w - 22, 2, '#f7a8a0'); R(x + 14, y + 3, w - 30, 2, '#d77a8c'); ctx.globalAlpha = 1;
   }
   // 远山
-  for (let x = 0; x < W; x += 4) {
+  for (let x = Math.floor(viewLeft / 4) * 4; x < viewRight; x += 4) {
     const wx = Math.floor((x + cam * 0.15) / 4) * 4;
     const hh = 48 + 34 * tri(wx / 190) + 16 * tri(wx / 67 + 0.3);
     R(x, 216 - hh, 4, hh + 60, '#4b2d6e');
@@ -515,8 +533,8 @@ function drawBG(cam) {
   // 近丘 + 松树
   const off = cam * 0.4;
   const hill = wx => 30 + 14 * Math.sin(wx / 70) + 8 * Math.sin(wx / 29 + 1);
-  for (let x = 0; x < W; x += 2) { const hh = Math.round(hill(Math.floor((x + off) / 2) * 2)); R(x, 226 - hh, 2, hh + 50, '#2b2150'); }
-  for (let k = Math.floor(off / 46) - 1; k <= Math.floor((off + W) / 46) + 1; k++) {
+  for (let x = Math.floor(viewLeft / 2) * 2; x < viewRight; x += 2) { const hh = Math.round(hill(Math.floor((x + off) / 2) * 2)); R(x, 226 - hh, 2, hh + 50, '#2b2150'); }
+  for (let k = Math.floor((off + viewLeft) / 46) - 1; k <= Math.floor((off + viewRight) / 46) + 1; k++) {
     const wx = k * 46 + hash(k, 5) % 22, x = Math.round(wx - off), base = 226 - Math.round(hill(wx)) + 2, th = 16 + hash(k, 6) % 14;
     R(x - 1, base - 4, 2, 6, '#1c1638');
     for (let i = 0; i < th; i++) { const w = 1 + Math.floor((i % 6) * 0.9 + i / 5); R(x - w, base - 4 - th + i, w * 2, 1, '#1c1638'); }
@@ -673,12 +691,25 @@ function drawPortal() {
 }
 
 function draw() {
-  ctx.setTransform(SC, 0, 0, SC, 0, 0);
+  ctx.setTransform(SC, 0, 0, SC, sceneX, sceneY); paintX = sceneX; paintY = sceneY;
   ctx.imageSmoothingEnabled = false;
   const cam = Math.round(S.cam);
   drawBG(cam);
+  // Continue the original terrain palette and pixel texture outside the game
+  // viewport. The game, camera, actors and physics retain their original bounds.
+  for (let x = Math.floor(viewLeft / T) * T; x < viewRight; x += T) {
+    if (x >= 0 && x < W) continue;
+    for (let r = GY; r < ROWS; r++) {
+      const n = hash(Math.floor(x / T) + Math.floor(cam / T), r), y = r * T;
+      R(x, y, T, T, '#3a2647');
+      R(x + n % 12, y + 5 + (n >> 4) % 8, 2, 2, '#2e1d3a');
+      R(x + (n >> 8) % 13, y + 4 + (n >> 12) % 9, 2, 1, '#4d3460');
+      if (r === GY) { R(x, y, T, 4, '#2fbf8f'); R(x, y, T, 1, '#7ef0c0'); R(x, y + 4, T, 1, '#1c8a6a'); }
+    }
+  }
+
   const shx = S.shake > 0 ? ((S.t % 2) * 2 - 1) * Math.ceil(S.shake / 4) : 0, shy = S.shake > 0 ? (((S.t >> 1) % 2) * 2 - 1) * Math.ceil(S.shake / 5) : 0;
-  ctx.save(); ctx.translate(-cam + shx, shy);
+  ctx.save(); ctx.translate(-cam + shx, shy); paintX = sceneX + (-cam + shx) * SC; paintY = sceneY + shy * SC;
   drawPortal();
   const c0 = Math.max(0, Math.floor(cam / T) - 1), c1 = Math.min(COLS - 1, c0 + 33);
   for (let r = 0; r < ROWS; r++) for (let c = c0; c <= c1; c++) {

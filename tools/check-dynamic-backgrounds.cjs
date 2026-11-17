@@ -3,10 +3,21 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { chromium, _electron } = require(process.env.DAYAN_PLAYWRIGHT_MODULE || 'playwright');
+const { checkBackgroundSwitching } = require('./check-background-switching.cjs');
 const root = path.resolve(__dirname, '..');
 const packaged = process.argv.includes('--packaged');
 const output = process.env.DAYAN_DYNAMIC_OUTPUT || 'D:/Codex/Outputs/DAYANDesktop/dynamic-backgrounds';
 fs.mkdirSync(output, { recursive: true });
+if (packaged) {
+  const asar = require('@electron/asar');
+  const archive = path.join(process.env.DAYAN_RELEASE_DIR, 'win-unpacked/resources/app.asar');
+  for (const item of asar.listPackage(archive)) {
+    const relative = item.replaceAll('\\', '/').replace(/^\//, '');
+    if (!relative.startsWith('assets/backgrounds/dynamic/') && !['renderer/timer.js', 'renderer/backgrounds.js'].includes(relative)) continue;
+    const file = path.join(root, relative);
+    if (fs.statSync(file).isFile()) assert.deepEqual(asar.extractFile(archive, path.normalize(relative)), fs.readFileSync(file), `Packaged runtime differs from tested source: ${relative}`);
+  }
+}
 const scenes = [
   { id: 'pelican-bike', file: 'pelican_bike.html', oldBars: [253, 246, 227] },
   { id: 'pelican-seaside', file: 'pelican_bike_seaside.html', oldBars: [43, 29, 58] }
@@ -126,7 +137,7 @@ let browser, desktop;
     await adapted.screenshot({ path: path.join(output, `preview-${scene.id}.png`) });
     if (process.argv.includes('--update-previews')) fs.copyFileSync(path.join(output, `preview-${scene.id}.png`), path.join(root, 'assets/backgrounds/dynamic', `preview-${scene.id}.png`));
     const coverage = [];
-    for (const [width, height] of [[800, 500], [1920, 1080], [3440, 1440], [1080, 1920]]) {
+    for (const [width, height] of [[800, 600], [1920, 1080], [1920, 1200], [3440, 1440], [5120, 1440], [2048, 845], [1080, 1920], [800, 500]]) {
       await adapted.setViewportSize({ width, height });
       await animation.evaluate(time => {
         window.stepAnimation(time);
@@ -135,6 +146,10 @@ let browser, desktop;
       const box = await canvas.boundingBox();
       assert.deepEqual({ x: box.x, y: box.y, width: box.width, height: box.height }, { x: 0, y: 0, width, height }, `${scene.id}: canvas must cover ${width}x${height}`);
       assert.equal(await canvas.evaluate(node => getComputedStyle(node).objectFit), 'fill', `${scene.id}: canvas fit changed at ${width}x${height}`);
+      const sceneBounds = await canvas.evaluate(node => JSON.parse(node.dataset.scene));
+      assert.ok(Math.abs(sceneBounds.width / sceneBounds.height - 480 / 270) < .001, `${scene.id}: artwork must retain its original aspect ratio`);
+      assert.ok(sceneBounds.x >= -.1 && sceneBounds.y >= -.1 && sceneBounds.x + sceneBounds.width <= width + .1 && sceneBounds.y + sceneBounds.height <= height + .1, `${scene.id}: original scene must remain fully visible`);
+      assert.ok(await canvas.evaluate(node => Math.abs(node.width / node.height - innerWidth / innerHeight) < .002), `${scene.id}: CSS must not stretch the drawing buffer`);
       const screenshot = await adapted.screenshot({ path: path.join(output, `${scene.id}-${width}x${height}.png`) });
       const edges = await pixelReader.evaluate(async png => {
         const image = new Image(); image.src = `data:image/png;base64,${png}`; await image.decode();
@@ -144,9 +159,9 @@ let browser, desktop;
       }, screenshot.toString('base64'));
       assert.equal(edges, true, `${scene.id}: transparent pixels at ${width}x${height}`);
       const painted = await canvas.evaluate(node => {
-        const sample = document.createElement('canvas'); sample.width = 8; sample.height = 8;
-        const sampleContext = sample.getContext('2d'); sampleContext.drawImage(node, 0, 0, 8, 8);
-        const pixels = sampleContext.getImageData(0, 0, 8, 8).data;
+        const sample = document.createElement('canvas'); sample.width = 32; sample.height = 32;
+        const sampleContext = sample.getContext('2d'); sampleContext.drawImage(node, 0, 0, 32, 32);
+        const pixels = sampleContext.getImageData(0, 0, 32, 32).data;
         return new Set(Array.from({ length: pixels.length / 4 }, (_, index) => `${pixels[index * 4]},${pixels[index * 4 + 1]},${pixels[index * 4 + 2]}`)).size > 8;
       });
       assert.equal(painted, true, `${scene.id}: canvas was not painted after resizing to ${width}x${height}`);
@@ -165,7 +180,10 @@ let browser, desktop;
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') console.error(message.text()); });
   await page.waitForSelector('html[data-ready=true]');
+  const selectionChecks = [];
+  for (const scope of ['current', 'all']) selectionChecks.push(...await checkBackgroundSwitching(desktop, page, scope));
   const active = page.locator('#simple-timers > section:not([hidden])');
+  assert.deepEqual(await page.evaluate(() => window.timerBackgrounds.filter(item => item.group === '动态背景').map(item => item.id).sort()), [...scenes, ...canvasScenes].map(item => item.id).sort(), 'Every registered dynamic scene needs rendering coverage; new scenes must not be silently skipped');
   for (const scene of scenes) {
     await active.locator('[data-background-toggle]').click();
     assert.ok(await active.locator('.background-group-heading', { hasText: /^动态背景$/ }).isVisible());
@@ -221,12 +239,29 @@ let browser, desktop;
             return rect.left >= -.1 && rect.top >= -.1 && rect.right <= innerWidth + .1 && rect.bottom <= innerHeight + .1 && scene.left <= .1 && scene.top <= .1 && scene.right >= innerWidth - .1 && scene.bottom >= innerHeight - .1;
           });
         }
+      } else if (canvasScenes.some(scene => scene.id === item.id)) {
+        for (const handle of await active.locator('.wallpaper-media > iframe').elementHandles()) {
+          const adapter = await handle.contentFrame(); await adapter.waitForSelector('html[data-ready=true]');
+          const animation = adapter.childFrames().find(frame => frame.url().includes('/derived/'));
+          await animation.waitForFunction(() => {
+            const canvas = document.getElementById('cv'), rect = canvas.getBoundingClientRect();
+            const scene = JSON.parse(canvas.dataset.scene);
+            return Math.abs(rect.width - innerWidth) < .1 && Math.abs(rect.height - innerHeight) < .1
+              && Math.abs(scene.width / scene.height - 480 / 270) < .001
+              && scene.x >= -.1 && scene.y >= -.1 && scene.x + scene.width <= innerWidth + .1 && scene.y + scene.height <= innerHeight + .1;
+          });
+          const pixels = await animation.locator('#cv').evaluate(canvas => {
+            const ctx = canvas.getContext('2d');
+            return [1, canvas.width - 2].every(x => [1, Math.floor(canvas.height / 2), canvas.height - 2].every(y => ctx.getImageData(x, y, 1, 1).data[3] === 255));
+          });
+          assert.equal(pixels, true, `${item.id}: packaged display tile must have painted edges`);
+        }
       }
       multiDisplayChecks.push({ id: item.id, displays: tiles.length, tiles });
     }
   }
   assert.deepEqual(errors, []);
-  const report = { result: 'passed', packaged, results, multiDisplayChecks, errors, data };
+  const report = { result: 'passed', packaged, results, selectionChecks, multiDisplayChecks, errors, data };
   fs.writeFileSync(path.join(output, 'validation.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify({ result: report.result, packaged, scenes: results.length, renderedCoverageChecks: results.reduce((sum, result) => sum + result.coverage.length, 0), mediaLayoutChecks: multiDisplayChecks.length, errors, output }, null, 2));
 })().catch(error => { console.error(error.stack); process.exitCode = 1; }).finally(async () => { if (browser) await browser.close(); if (desktop) await desktop.close(); });

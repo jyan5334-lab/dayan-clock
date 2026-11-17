@@ -208,6 +208,9 @@
   window.addEventListener('openai:set_globals',event=>{
     const state=event.detail?.globals?.widgetState?.privateContent;
     if(state?.version!==2||JSON.stringify(state)===lastSave)return;
+    // Compare against the latest applied state, including changes from another
+    // window, so returning to an earlier local selection is not discarded.
+    lastSave=JSON.stringify(state);
     models.forEach((m,i)=>m.restore(state.simpleTimers?.[i]));
   });
 })();

@@ -15,3 +15,11 @@ Before adding or changing any static image, video or HTML wallpaper, read
 - Verify rendered coverage, animation and monitor coordinates with
   `npm run check` and `npm run test:dynamic-backgrounds`. Distinguish simulated
   layout checks from physical monitor validation.
+- Every new wallpaper must pass the catalog-driven tray-editor/main-window
+  switching regression, including switching away and back, reverse order,
+  repeated cycles and reopening the editor. Check actual media and saved state,
+  not just the selected thumbnail. Cross-window deduplication must track the
+  latest applied state rather than the last state written by that window.
+- For Canvas scenes verify the original scene's aspect ratio and full bounds,
+  drawing-buffer ratio, and painted edges after resize. CSS fill alone is not
+  proof of fullscreen compatibility. Run these checks against packaged builds.
