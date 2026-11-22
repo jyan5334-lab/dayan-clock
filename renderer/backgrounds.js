@@ -165,5 +165,15 @@ window.timerBackgrounds = [
     "originalColors": true,
     "src": "assets/backgrounds/dynamic/animation.html?scene=fox-quest",
     "thumb": "assets/backgrounds/dynamic/preview-fox-quest.png"
+  },
+  {
+    "id": "pelican-island",
+    "label": "海岛骑行 · 昼夜相伴",
+    "group": "动态背景",
+    "kind": "html",
+    "originalColors": true,
+    "companion": true,
+    "src": "assets/backgrounds/dynamic/island.html?scene=pelican-island",
+    "thumb": "assets/backgrounds/dynamic/preview-pelican-island.png"
   }
 ].map(item => ({ ...item, src: new URL(item.src, document.baseURI).href, thumb: item.thumb ? new URL(item.thumb, document.baseURI).href : undefined }));

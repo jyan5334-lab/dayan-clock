@@ -49,6 +49,8 @@ npm run dist:win
 
 Windows 启动与打包入口使用系统 Windows PowerShell 和 .NET 编译 `desktop/update-host.cs`，生成独立的更新辅助程序。`assets/DAYANUpdateHost.exe` 是构建产物，不提交到 Git；源码 ZIP 解压后按上述命令可重新生成。使用者安装后无需另行编译或配置。
 
+后台更新验收使用 `npm run test:update-background`、`npm run test:update-automatic`、`npm run test:update-install` 和 `npm run test:update-resume`。自动流程测试使用本地 HTTP、隔离配置和模拟安装交接，不运行真实安装器；安装辅助程序测试覆盖成功、失败、版本不符与锁屏取消。打包后运行 `node tools/check-update-resume.cjs --packaged` 和 `node tools/check-update-prompts.cjs --packaged`，确认全屏恢复、实际背景及手动更新窗口。测试通过不代表已在用户正在使用的安装目录完成真实升级；该升级及不同 Windows 权限环境仍需目标设备验收。
+
 同一步骤还会编译 `desktop/desktop-host.cs`，生成 `assets/DAYANDesktopHost.exe`。它负责桌面图标层下方的原生窗口挂接，也不提交到 Git。可选的 `npm run test:desktop-shell` 需要已安装的 Playwright，或通过 `DAYAN_PLAYWRIGHT_MODULE` 指定其模块路径；它会在独立测试数据下检查真实桌面图标层和右键菜单，不操作桌面文件。
 
 Windows 构建还会编译 `desktop/keyboard-guard.cs`，生成 `assets/DAYANKeyboardGuard.exe`，该文件只随安装包发布。它通过 Windows 自带的 .NET Framework 和 Windows Forms 消息循环，在应用锁定期间拦截普通桌面的按键。`npm run test:keyboard` 使用独立测试数据和带标记的 Windows 原生输入，验证拦截、数字密码和异常释放；测试期间会短暂占用键盘，不修改系统策略，不保存用户按键。系统安全桌面及不同 Windows 权限级别的行为仍需要目标设备验收。

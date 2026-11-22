@@ -1,3 +1,4 @@
+const workspacePaths = require('./workspace-paths.cjs');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -5,7 +6,7 @@ const path = require('node:path');
 const http = require('node:http');
 const { downloadUpdate, mergeUpdateSources, CHUNK_SIZE, CONNECTIONS, FALLBACK_CONNECTIONS, SOURCE_POOL_LIMIT } = require('../desktop/update-download.cjs');
 
-const root = fs.mkdtempSync(path.join(process.env.DAYAN_TEST_ROOT || 'D:/Codex/Temp', 'dayan-download-'));
+const root = fs.mkdtempSync(path.join(process.env.DAYAN_TEST_ROOT || workspacePaths.temp(), 'dayan-download-'));
 const payload = crypto.randomBytes(CHUNK_SIZE * 12 + 97);
 const digest = crypto.createHash('sha256').update(payload).digest('hex');
 const counts = new Map();

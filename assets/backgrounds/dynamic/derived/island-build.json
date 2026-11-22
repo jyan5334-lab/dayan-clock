@@ -1,0 +1,6 @@
+{
+  "originalSha256": "737c8f61455ae5c84bc3a8a59344cc456da30781070faf88e2239b04823591f9",
+  "three": "0.170.0",
+  "esbuild": "0.25.12",
+  "offline": true
+}

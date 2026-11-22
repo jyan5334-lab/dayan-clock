@@ -1,13 +1,14 @@
+const workspacePaths = require('./workspace-paths.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { prepareUpdateInstall } = require('../desktop/update-install.cjs');
 
 if (process.platform !== 'win32') throw Error('This handoff regression requires Windows.');
 require('../desktop/build-update-host.cjs').buildUpdateHost();
-const root = fs.mkdtempSync(path.join(os.tmpdir(), "dayan update ' 中文-"));
+fs.mkdirSync(workspacePaths.temp(), { recursive: true });
+const root = fs.mkdtempSync(path.join(workspacePaths.temp(), "dayan update ' 中文-"));
 const powershell = path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe');
 const quote = value => "'" + value.replaceAll("'", "''") + "'";
 const source = `using System;
@@ -55,7 +56,7 @@ function readStatus(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '')); } catch { return {}; }
 }
 const checks = [];
-async function scenario(name, { missing = false, failed = false, version = '9.9.9', ownerExit = false } = {}) {
+async function scenario(name, { missing = false, failed = false, version = '9.9.9', ownerExit = false, cancelled = false } = {}) {
   const folder = path.join(root, name);
   const installDir = path.join(folder, "installed app ' 中文");
   fs.mkdirSync(installDir, { recursive: true });
@@ -86,6 +87,14 @@ async function scenario(name, { missing = false, failed = false, version = '9.9.
       job = await prepareUpdateInstall(options);
       assert.equal(readStatus(job.statusPath).stage, 'ready');
       assert.equal(fs.existsSync(path.join(folder, 'installer-args.txt')), false, 'Installer must wait for parent exit');
+      if (cancelled) {
+        job.cancel();
+        await waitFor(() => readStatus(job.statusPath).stage === 'cancelled', 'Helper must cancel before installation');
+        assert.equal(fs.existsSync(path.join(folder, 'installer-args.txt')), false);
+        assert.equal(parent.exitCode, null, 'Deferred installation keeps wallpaper running');
+        checks.push('Lock during handoff cancels helper without installer launch or application exit');
+        return;
+      }
       parent.kill();
     }
     await waitFor(() => ['completed', 'failed'].includes(readStatus(job.statusPath).stage), `${name}: handoff did not finish`);
@@ -112,5 +121,6 @@ async function scenario(name, { missing = false, failed = false, version = '9.9.
   await scenario('installer-failed', { failed: true });
   await scenario('version-mismatch', { version: '9.9.8' });
   await scenario('missing-installer', { missing: true });
+  await scenario('cancelled-handoff', { cancelled: true });
   console.log(JSON.stringify({ result: 'passed', fixtureOnly: true, root, checks }, null, 2));
 })().catch(error => { console.error(error.stack); process.exitCode = 1; });

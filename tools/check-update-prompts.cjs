@@ -1,3 +1,4 @@
+const workspacePaths = require('./workspace-paths.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -6,7 +7,7 @@ const { spawnSync } = require('node:child_process');
 const { _electron } = require(process.env.DAYAN_PLAYWRIGHT_MODULE || 'playwright');
 const root = path.resolve(__dirname, '..');
 const packed = process.argv.includes('--packaged');
-const testRoot = process.env.DAYAN_TEST_ROOT || 'D:/Codex/Temp';
+const testRoot = process.env.DAYAN_TEST_ROOT || workspacePaths.temp();
 fs.mkdirSync(testRoot, { recursive:true });
 const testDir = fs.mkdtempSync(path.join(testRoot, 'dayan-update-prompts-'));
 const profile = path.join(testDir, 'data');
@@ -76,11 +77,12 @@ async function scheduledCheck(hour) {
 }
 async function nativeDrag(page) {
   const window = await desktop.browserWindow(page);
+  await window.evaluate(window => { window.show(); window.focus(); });
+  await page.waitForTimeout(300);
   const before = await window.evaluate(window => window.getBounds());
   const box = await page.locator('#update-title').boundingBox();
   assert.equal(await page.locator('#update-title').evaluate(node => getComputedStyle(node).webkitAppRegion), 'drag');
   const point = await desktop.evaluate(({ screen }, point) => screen.dipToScreenPoint(point), { x: Math.round(before.x + box.x + 60), y: Math.round(before.y + box.y + 8) });
-  await window.evaluate(window => { window.show(); window.focus(); });
   const script = `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class UpdateDrag { [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y); [DllImport("user32.dll")] public static extern void mouse_event(uint f,uint x,uint y,uint d,UIntPtr e); }'
 [UpdateDrag]::SetCursorPos(${point.x},${point.y}) | Out-Null
 [UpdateDrag]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
@@ -102,8 +104,13 @@ for ($step=1; $step -le 10; $step++) { [UpdateDrag]::SetCursorPos(${point.x}+$st
   assert.equal(updaterWindows().length, 0);
   const failedRequests = requests;
   unavailable = false;
-  let page = await prompt();
+  const retryDeadline = Date.now() + 25000;
+  while (requests === failedRequests && Date.now() < retryDeadline) await pause(50);
+  await pause(500);
   assert.ok(requests > failedRequests, 'Startup failure must retry automatically without a user click');
+  assert.equal(updaterWindows().length, 0, 'Automatic checks must stay silent');
+  assert.equal((await mainPage.evaluate(() => window.dayan.updateCheck())).available, true);
+  let page = await prompt();
   const mainBounds = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => !window.webContents.getURL().includes('updater=1')).getBounds());
   assert.equal(await page.locator('#update-remind-tomorrow').innerText(), '今日不再提醒');
   assert.equal(await page.locator('#update-cancel').innerText(), '取消');
@@ -130,14 +137,17 @@ for ($step=1; $step -le 10; $step++) { [UpdateDrag]::SetCursorPos(${point.x}+$st
   assert.deepEqual(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds()), mainBounds, 'Opening and dismissing the prompt must not resize the wallpaper');
   await startSchedule();
   for (const hour of [9, 14, 17]) {
-    await scheduledCheck(hour); page = await prompt();
+    await scheduledCheck(hour); await pause(400);
+    assert.equal(updaterWindows().length, 0, 'Daily automatic checks must not show a prompt');
+    await mainPage.evaluate(() => window.dayan.updateCheck()); page = await prompt();
     if (hour === 9) await nativeDrag(page);
     await dismiss(page, '#update-cancel');
   }
   await desktop.evaluate(() => { globalThis.__dayanUpdateSchedule.stop(); Date.now = globalThis.__originalUpdateNow; });
   assert.equal(JSON.parse(fs.readFileSync(preferences)).updateReminderDate, undefined);
   await quit();
-  await launch(); page = await prompt();
+  await launch();
+  await mainPage.evaluate(() => window.dayan.updateCheck()); page = await prompt();
   await dismiss(page, '#update-remind-tomorrow');
   assert.equal(JSON.parse(fs.readFileSync(preferences)).updateReminderDate, today());
   await quit();
@@ -165,7 +175,8 @@ for ($step=1; $step -le 10; $step++) { [UpdateDrag]::SetCursorPos(${point.x}+$st
   const saved = JSON.parse(fs.readFileSync(preferences));
   saved.updateReminderDate = '2000-01-01';
   fs.writeFileSync(preferences, JSON.stringify(saved));
-  await launch(); page = await prompt();
+  await launch();
+  await mainPage.evaluate(() => window.dayan.updateCheck()); page = await prompt();
   assert.match(await page.locator('#update-title').innerText(), /测试/);
   await dismiss(page, '#update-cancel');
   assert.equal((await mainPage.evaluate(() => window.dayan.securitySetPassword({ next: '123456', recovery: { question: 'teacher', answer: 'Test Teacher' } }))).ok, true);
@@ -174,12 +185,13 @@ for ($step=1; $step -le 10; $step++) { [UpdateDrag]::SetCursorPos(${point.x}+$st
   await scheduledCheck(9); await pause(500);
   assert.equal(updaterWindows().length, 0, 'Scheduled updates must not interrupt locking');
   assert.equal(await mainPage.evaluate(() => window.dayan.securityVerify('123456')), true);
-  await prompt();
+  await pause(300);
+  assert.equal(updaterWindows().length, 0, 'Unlocking must not show an automatic update prompt');
   await desktop.evaluate(() => { globalThis.__dayanUpdateSchedule.stop(); Date.now = globalThis.__originalUpdateNow; });
   await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => !window.webContents.getURL().includes('updater=1')).hide());
   assert.equal(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().every(window => !window.isVisible())), true, 'Test windows must be hidden after the explicit drag and lock checks');
   assert.deepEqual(errors, []);
-  const report = { result:'passed', packaged:packed, requests, testDir, checks:['Startup checks only after renderer readiness', 'Transient startup failure retries automatically', 'Independent update prompt leaves wallpaper bounds unchanged', 'Three responsive actions at 320, 480 and 600 pixels', 'Cancel suppresses reconnect prompts until next scheduled slot', '09:00/14:00/17:00 each request and reopen after cancellation', 'Native Windows title drag moves the prompt without resizing it', 'Today suppression persists and applies to scheduled checks', 'Manual checks bypass today suppression', 'Installation failure re-enables actions', 'Expired daily preference prompts again', 'Updates checked while locked appear after unlocking', 'Fixture installation blocked; windows hidden except explicit drag check'], errors };
+  const report = { result:'passed', packaged:packed, requests, testDir, checks:['Startup and network retry check without automatic prompts', '09:00/14:00/17:00 each request silently', 'Manual independent update prompt leaves wallpaper bounds unchanged', 'Three responsive actions at 320, 480 and 600 pixels', 'Native Windows title drag moves the prompt without resizing it', 'Manual checks remain available after cancellation or today dismissal', 'Failed manual installation re-enables actions', 'Lock and unlock never show automatic prompts', 'Fixture installation blocked; windows hidden except explicit drag and lock checks'], errors };
   fs.writeFileSync(path.join(testDir, 'validation.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => { await quit(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });

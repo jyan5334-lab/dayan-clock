@@ -5,7 +5,10 @@ const crypto = require('node:crypto');
 const { spawn, spawnSync } = require('node:child_process');
 const { RATIO, MIN_WIDTH, corners, fitBounds, resizeFromCorner } = require('./window-geometry.cjs');
 const { prepareUpdateInstall } = require('./update-install.cjs');
+const { createUpdateController } = require('./update-controller.cjs');
+const { saveUpdateSession, readUpdateSession, clearUpdateSession } = require('./update-session.cjs');
 const { createDesktopHost } = require('./windows-desktop.cjs');
+const { createRenderDiagnostics } = require('./render-diagnostics.cjs');
 const { createWallpaperControls } = require('./wallpaper-controls.cjs');
 const { createPresentationEditor } = require('./presentation-editor.cjs');
 const recovery = require('./password-recovery.cjs');
@@ -31,10 +34,12 @@ const DEFAULT_DISPLAY_SETTINGS = Object.freeze({ showAlmanac: true, showClockDat
 let mainWindow, tray, trayMenu, state = {}, resizeSession, saveTimer, securityLocked = false, quitting = false, openedAtLogin = false, trayActionBusy = false, desktopReconcileTimer, trayReconcileInterval;
 let windowedBounds, presentationRequested = false, restoringBounds = false, restoreBoundsTimer, desktopWindowHosted = false;
 let presentationDisplayId;
+let renderDiagnostics;
 let desktopHost, wallpaperControls, desktopHostDesired = false, desktopHostQueue = Promise.resolve(), desktopHostRequest = 0;
 let updateInfo = null, updateBusy = false, updateCheckPromise;
 let updateWindow, automaticUpdateTimer, rendererReady = false, updateDismissed = false, automaticUpdateAttempt = 0;
 let scheduledUpdatePending = false;
+let updateResume, legacyUpdateResume = false, startupRestoring = true, systemLocked = false, deferredUpdateTimer, automaticInstallAttempt = 0;
 const dailyUpdateSchedule = createUpdateSchedule({ onCheck: () => {
   automaticUpdateAttempt = 0;
   scheduleAutomaticUpdate(0, true);
@@ -46,6 +51,44 @@ const presentationEditor = createPresentationEditor();
 let recoveryGrant = null, recoveryEditing = false;
 let lockDesktop, shortcutError = '';
 const stateFile = () => path.join(app.getPath('userData'), 'preferences.json');
+const updateController = createUpdateController({
+  download: async update => {
+    const directory = path.join(app.getPath('userData'), 'updates', 'downloads');
+    fs.mkdirSync(directory, { recursive: true });
+    const installerPath = path.join(directory, `DAYANClock-Setup-${update.version}-x64.exe`);
+    await downloadUpdateFile(update, installerPath);
+    return installerPath;
+  },
+  canInstall: () => !quitting && !startupRestoring && !securityLocked && !lockStarting && !systemLocked && !policyOperation && Boolean(mainWindow && !mainWindow.isDestroyed()),
+  install: async ({ installerPath, update }) => {
+    rememberWindowedBounds();
+    if (!flushState()) throw Error('桌面设置保存失败，暂不安装更新');
+    saveUpdateSession(app.getPath('userData'), {
+      version: update.version, fullscreen: isPresentationFullscreen(),
+      displayId: presentationDisplayId, minimized: mainWindow.isMinimized(),
+      displayScope: normalizeWindowLayers(state.windowLayers).displayScope
+    });
+    try {
+      const job = await prepareUpdateInstall({ installerPath, appPath: app.getPath('exe'), version: update.version, userData: app.getPath('userData'), silent: true, notifyOnFailure: false });
+      if (systemLocked || securityLocked || lockStarting || policyOperation || quitting) {
+        job.cancel();
+        clearUpdateSession(app.getPath('userData'));
+        return { deferred: true };
+      }
+    } catch (error) { clearUpdateSession(app.getPath('userData')); throw error; }
+    quitting = true;
+    setImmediate(() => app.quit());
+  },
+  onStatus: (phase, error) => {
+    try {
+      const directory = path.join(app.getPath('userData'), 'updates');
+      fs.mkdirSync(directory, { recursive: true });
+      const log = path.join(directory, 'background.log');
+      if (fs.existsSync(log) && fs.statSync(log).size > 1024 * 1024) fs.renameSync(log, log + '.old');
+      fs.appendFileSync(log, JSON.stringify({ at: new Date().toISOString(), phase, error }) + '\n');
+    } catch (error) { console.error('Unable to record update status:', error.message); }
+  }
+});
 
 function normalizeDisplaySettings(value) {
   const modes = value?.modes && typeof value.modes === 'object' ? value.modes : {};
@@ -201,9 +244,12 @@ async function checkForUpdates() {
       });
       remote = await Promise.any(requests);
       // A fast cached manifest must not hide a newer release on the other channel.
-      if (!isNewerVersion(remote.version, app.getVersion())) await Promise.allSettled(requests);
+      if (!isNewerVersion(remote.version, app.getVersion()) || !/^[a-f0-9]{64}$/i.test(remote.sha256)) await Promise.allSettled(requests);
     } catch (error) { throw Error(describeUpdateError(error.errors?.[0] || error)); }
-    for (const candidate of candidates) remote = isNewerVersion(candidate.version, remote.version) ? candidate : mergeUpdateSources(remote, candidate);
+    for (const candidate of candidates) {
+      const suppliesDigest = candidate.version === remote.version && !/^[a-f0-9]{64}$/i.test(remote.sha256) && /^[a-f0-9]{64}$/i.test(candidate.sha256);
+      remote = isNewerVersion(candidate.version, remote.version) || suppliesDigest ? candidate : mergeUpdateSources(remote, candidate);
+    }
     if (!remote || !isNewerVersion(remote.version, app.getVersion())) { updateInfo = null; return { available: false, currentVersion: app.getVersion(), checkedAt: new Date().toISOString() }; }
     updateInfo = { ...remote, currentVersion: app.getVersion(), testOnly: Boolean(updateMode.fixtureUrl) };
     return { available: true, ...updateInfo };
@@ -270,7 +316,10 @@ function scheduleAutomaticUpdate(delay = 0, scheduled = false) {
     } else {
       automaticUpdateAttempt = 0;
       if (scheduledUpdatePending) { updateDismissed = false; scheduledUpdatePending = false; }
-      if (result.available) offerUpdate();
+      if (result.available) {
+        const outcome = await downloadAndInstallUpdate();
+        if (!outcome.ok && !updateMode.fixtureUrl && automaticInstallAttempt < 3) scheduleAutomaticUpdate([15000, 60000, 300000][automaticInstallAttempt++]);
+      }
     }
   }, delay);
   automaticUpdateTimer.unref();
@@ -278,27 +327,23 @@ function scheduleAutomaticUpdate(delay = 0, scheduled = false) {
 
 async function downloadAndInstallUpdate() {
   if (updateMode.fixtureUrl) return { ok: false, error: '本地更新测试使用模拟版本，禁止安装。请关闭测试窗口并打开正式程序。' };
-  if (!updateInfo || updateBusy) return { ok: false, error: '当前没有可安装的更新' };
+  if (!app.isPackaged) return { ok: false, error: '开发模式不执行安装，请使用正式安装版' };
+  if (process.platform !== 'win32') return { ok: false, error: '当前更新安装器仅支持 Windows' };
+  if (quitting || (!updateInfo && !updateController.pending)) return { ok: false, error: '当前没有可安装的更新' };
   updateBusy = true;
-  const update = updateInfo;
-  const tempDir = path.join(app.getPath('userData'), 'updates', 'downloads');
-  const installerPath = path.join(tempDir, `DAYANClock-Setup-${update.version}-x64.exe`);
   try {
-    fs.mkdirSync(tempDir, { recursive: true });
-    const { actualHash } = await downloadUpdateFile(update, installerPath);
-    if (update.sha256 && actualHash.toLowerCase() !== update.sha256.toLowerCase()) throw new Error('更新文件校验失败，未执行安装');
-    if (process.platform !== 'win32') return { ok: false, error: '当前更新安装器仅支持 Windows' };
-    sendUpdateProgress({ received: update.size, total: update.size, percent: 100, status: '下载校验完成，正在准备安装…' });
-    await prepareUpdateInstall({ installerPath, appPath: app.getPath('exe'), version: update.version, userData: app.getPath('userData') });
-    sendUpdateProgress({ percent: 100, status: '正在打开安装程序，安装完成后将自动重启…' });
-    quitting = true;
-    setImmediate(() => app.quit());
-    return { ok: true };
-  } catch (error) {
-    const message = describeUpdateError(error);
-    if (updateWindow && !updateWindow.isDestroyed()) updateWindow.webContents.send('dayan:update-error', { message });
-    return { ok: false, error: message };
-  } finally { updateBusy = false; }
+    const result = await updateController.request(updateInfo);
+    if (result.deferred) {
+      sendUpdateProgress({ percent: 100, status: '下载完成，将在解锁后自动安装' });
+      clearTimeout(deferredUpdateTimer);
+      deferredUpdateTimer = setTimeout(() => downloadAndInstallUpdate(), 15000);
+      deferredUpdateTimer.unref();
+    } else if (!result.ok) {
+      console.error('Background update failed:', result.error);
+      if (updateWindow && !updateWindow.isDestroyed()) updateWindow.webContents.send('dayan:update-error', { message: result.error });
+    }
+    return result;
+  } finally { updateBusy = updateController.busy; }
 }
 
 function powershellLiteral(value) {
@@ -686,10 +731,14 @@ function setDesktopWindowMode(hosted, display) {
     if (request !== desktopHostRequest || window.isDestroyed()) return;
     if (hosted) {
       const area = (display || presentationArea()).bounds;
-      const attempts = openedAtLogin && !desktopWindowHosted ? 12 : 1;
+      const attempts = (openedAtLogin || updateResume) && !desktopWindowHosted ? 12 : 1;
       for (let attempt = 0; attempt < attempts; attempt++) {
         if (request !== desktopHostRequest || window.isDestroyed()) return;
-        try { await desktopHost.attach(window, screen.dipToScreenRect(window, area)); break; }
+        try {
+          await desktopHost.attach(window, screen.dipToScreenRect(window, area));
+          renderDiagnostics?.record('desktop-attach', { bounds: area, alreadyHosted: desktopWindowHosted });
+          break;
+        }
         catch (error) {
           if (attempt + 1 === attempts || !/icon layer was not found|desktop parenting|desktop parent changed/i.test(error.message)) throw error;
           await new Promise(resolve => setTimeout(resolve, 500));
@@ -933,7 +982,7 @@ function setupIPC() {
     });
   });
   lockDesktop = async () => {
-    if (!passwordRecord() || !recovery.valid(state.security?.recovery) || policyOperation || lockStarting || securityLocked) return false;
+    if (!passwordRecord() || !recovery.valid(state.security?.recovery) || policyOperation || lockStarting || securityLocked || quitting || updateController.phase === 'installing') return false;
     lockStarting = true;
     unlockInputEnabled = false;
     try {
@@ -990,7 +1039,7 @@ function setupIPC() {
     } else await leavePresentation();
     fullscreenBeforeLock = false;
     notify();
-    offerUpdate();
+    if (updateController.pending) setImmediate(() => downloadAndInstallUpdate());
     return true;
   });
   const pointerPosition = pointer => Number.isFinite(pointer?.x) && Number.isFinite(pointer?.y) ? pointer : screen.getCursorScreenPoint();
@@ -1053,22 +1102,30 @@ function createWindow() {
     if (presentationRequested || securityLocked) { applyPresentationWindow(); notify(); }
     else queueWindowedRestore();
   });
-  mainWindow.once('ready-to-show', () => {
+  mainWindow.once('ready-to-show', async () => {
     state.lastStartup = { startedAt: new Date(launchedAt).toISOString(), readyMs: Date.now() - launchedAt, login: openedAtLogin };
-    if (!updateMode.hideWindow) mainWindow.show();
     restoreWindowedBounds();
-    if (openedAtLogin && state.autoStart !== false && !updateMode.fixtureUrl) {
-      setTimeout(() => {
-        if (!mainWindow || mainWindow.isDestroyed() || securityLocked || isPresentationFullscreen()) return;
+    try {
+      if (updateResume?.fullscreen || legacyUpdateResume || (!updateResume && openedAtLogin && state.autoStart !== false && !updateMode.fixtureUrl)) {
         preparePresentation();
-        Promise.resolve(applyPresentationWindow()).then(() => {
-          if (!mainWindow || mainWindow.isDestroyed()) return;
-          if (!desktopWindowHosted) { mainWindow.show(); mainWindow.focus(); }
-          state.lastStartup.presentationMs = Date.now() - launchedAt;
-          scheduleSave();
-          notify();
-        }).catch(error => console.error('Unable to restore presentation at login:', error.message));
-      }, 220);
+        if (updateResume) presentationDisplayId = screen.getAllDisplays().find(display => display.id === updateResume.displayId)?.id ?? screen.getPrimaryDisplay().id;
+        await applyPresentationWindow();
+        state.lastStartup.presentationMs = Date.now() - launchedAt;
+      }
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      if (!updateMode.hideWindow) {
+        if (updateResume?.minimized) mainWindow.minimize();
+        else if (desktopWindowHosted || updateResume) mainWindow.showInactive();
+        else mainWindow.show();
+      }
+      if (updateResume) { clearUpdateSession(app.getPath('userData')); updateResume = null; }
+      scheduleSave();
+      notify();
+    } catch (error) {
+      console.error('Unable to restore desktop after startup:', error.message);
+      if (!updateMode.hideWindow && mainWindow && !mainWindow.isDestroyed()) mainWindow.showInactive();
+    } finally {
+      startupRestoring = false;
     }
   });
   mainWindow.on('close', event => {
@@ -1076,8 +1133,21 @@ function createWindow() {
     flushState();
   });
   mainWindow.on('closed', () => { clearTimeout(restoreBoundsTimer); keyboardGuard?.stop(); wallpaperControls?.destroy(); wallpaperControls = null; mainWindow = null; updateWindow?.destroy(); });
-  mainWindow.on('unresponsive', () => { keyboardGuard?.stop().then(notify); });
-  mainWindow.webContents.on('render-process-gone', () => { keyboardGuard?.stop().then(notify); });
+  mainWindow.on('unresponsive', () => { renderDiagnostics?.record('renderer-unresponsive'); keyboardGuard?.stop().then(notify); });
+  mainWindow.on('responsive', () => renderDiagnostics?.record('renderer-responsive'));
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    renderDiagnostics?.record('renderer-gone', { reason: details.reason, exitCode: details.exitCode });
+    keyboardGuard?.stop().then(notify);
+  });
+  mainWindow.webContents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => {
+    if (inPlace) return;
+    let document;
+    try { document = path.posix.basename(new URL(url).pathname); } catch { document = 'unknown'; }
+    renderDiagnostics?.record('document-navigation', { document, mainFrame });
+  });
+  mainWindow.webContents.on('did-fail-load', (_event, code, _description, _url, mainFrame) => {
+    renderDiagnostics?.record('document-load-failed', { code, mainFrame });
+  });
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
     if (securityLocked && (['F11', 'Escape'].includes(input.key) || (input.alt && input.key === 'F4') || (input.control && input.shift && input.key === 'Escape'))) event.preventDefault();
@@ -1092,8 +1162,10 @@ function createWindow() {
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-  app.on('second-instance', async () => {
+  app.on('second-instance', async (_event, argv) => {
     if (!mainWindow) return;
+    // A duplicate installer relaunch must never detach a restored wallpaper.
+    if (argv.some(arg => ['--updated', '--dayan-update-recovery'].includes(arg))) return;
     scheduleAutomaticUpdate();
     if (!securityLocked && (desktopHostDesired || desktopWindowHosted)) await leavePresentation();
     if (!mainWindow) return;
@@ -1101,7 +1173,16 @@ else {
     mainWindow.show(); mainWindow.focus();
   });
   app.whenReady().then(() => {
+    renderDiagnostics = createRenderDiagnostics(path.join(app.getPath('userData'), 'diagnostics'), { version: app.getVersion() });
+    renderDiagnostics.record('gpu-status', { features: app.getGPUFeatureStatus() });
+    app.on('gpu-info-update', () => renderDiagnostics.record('gpu-status', { features: app.getGPUFeatureStatus() }));
+    app.on('child-process-gone', (_event, details) => renderDiagnostics.record('child-process-gone', { type: details.type, reason: details.reason, exitCode: details.exitCode }));
     readState();
+    updateResume = readUpdateSession(app.getPath('userData'));
+    // Older versions cannot write a handoff record. Their --updated launch
+    // defaults to the desktop presentation for this first upgrade only.
+    legacyUpdateResume = process.argv.includes('--updated') && !updateResume && !fs.existsSync(path.join(app.getPath('userData'), 'updates', 'resume.json'));
+    if (updateResume?.displayScope) state.windowLayers.displayScope = updateResume.displayScope === 'all' ? 'all' : 'current';
     applyAutoStart(state.autoStart !== false);
     try {
       openedAtLogin = process.argv.includes('--dayan-login-start') || (process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin === true);
@@ -1117,7 +1198,11 @@ else {
       } catch (error) { console.error('Keyboard guard unavailable:', error.message); }
     }
     setupIPC();
-    powerMonitor.on('resume', () => dailyUpdateSchedule.tick());
+    powerMonitor.on('suspend', () => renderDiagnostics.record('system-suspend'));
+    powerMonitor.on('resume', () => { renderDiagnostics.record('system-resume'); dailyUpdateSchedule.tick(); });
+    try { systemLocked = powerMonitor.getSystemIdleState(60) === 'locked'; } catch {}
+    powerMonitor.on('lock-screen', () => { systemLocked = true; });
+    powerMonitor.on('unlock-screen', () => { systemLocked = false; if (updateController.pending) downloadAndInstallUpdate(); });
     if (process.env.DAYAN_TEST === '1') globalThis.__dayanUpdateSchedule = dailyUpdateSchedule;
     if (state.lockShortcut) {
       const result = configureLockShortcut(state.lockShortcut);
@@ -1138,7 +1223,11 @@ else {
         if (action !== 'fullscreen') mainWindow.webContents.send('dayan:desktop-command', action);
       }
     });
-    const updateDisplayBounds = async () => {
+    const updateDisplayBounds = async (_event, display, metrics) => {
+      renderDiagnostics.record('display-change', { display: display?.id, metrics, bounds: display?.bounds });
+      // Taskbar/work-area changes do not change a fullscreen desktop's bounds.
+      // Reparenting/resizing it here needlessly invalidates Explorer composition.
+      if (isPresentationFullscreen() && metrics?.length && !metrics.some(metric => ['bounds', 'scaleFactor', 'rotation'].includes(metric))) return;
       presentationEditor.close();
       if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized()) return;
       if (isPresentationFullscreen()) await applyPresentationWindow(true);
@@ -1152,11 +1241,13 @@ else {
   });
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
   app.on('before-quit', () => {
+    renderDiagnostics?.record('session-end');
     quitting = true;
     globalShortcut.unregisterAll();
     presentationEditor.close();
     clearTimeout(desktopReconcileTimer);
     clearTimeout(automaticUpdateTimer);
+    clearTimeout(deferredUpdateTimer);
     dailyUpdateSchedule.stop();
     clearInterval(trayReconcileInterval);
     tray?.destroy();

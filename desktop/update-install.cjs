@@ -39,7 +39,7 @@ async function prepareUpdateInstall({ installerPath, appPath, version, userData,
     child.once('exit', onExit);
   }).catch(error => { child.kill(); throw error; });
   child.unref();
-  return { jobDir, statusPath };
+  return { jobDir, statusPath, cancel: () => fs.writeFileSync(path.join(jobDir, 'cancel.requested'), '') };
 }
 
 module.exports = { prepareUpdateInstall };

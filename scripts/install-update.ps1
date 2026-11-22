@@ -25,14 +25,23 @@ try {
   $oldProcess = Get-Process -Id ([int]$request.parentPid) -ErrorAction SilentlyContinue
   if ($null -eq $oldProcess) { throw 'The running application is no longer available for handoff.' }
   Write-UpdateStatus 'ready' 'Helper ready; waiting for the application to exit.'
-  if (-not $oldProcess.WaitForExit(60000)) { throw 'The running application did not exit within 60 seconds.' }
+  $deadline = [DateTime]::UtcNow.AddSeconds(60)
+  while (-not $oldProcess.WaitForExit(250)) {
+    if (Test-Path -LiteralPath (Join-Path $jobDir 'cancel.requested')) {
+      Write-UpdateStatus 'cancelled' 'Application deferred installation.'
+      exit 0
+    }
+    if ([DateTime]::UtcNow -ge $deadline) { throw 'The running application did not exit within 60 seconds.' }
+  }
+  if (Test-Path -LiteralPath (Join-Path $jobDir 'cancel.requested')) { Write-UpdateStatus 'cancelled' 'Application deferred installation.'; exit 0 }
   $parentExited = $true
   Write-UpdateStatus 'installing' ('Starting installer: ' + $request.installerPath)
   # NSIS requires /D to be the final argument, without quotes around its value.
   $installerArgs = '--updated'
   if ($request.silent) { $installerArgs += ' /S' }
   $installerArgs += ' /D=' + $installDir
-  $installer = Start-Process -FilePath $request.installerPath -ArgumentList $installerArgs -WorkingDirectory $jobDir -WindowStyle Normal -Wait -PassThru
+  $installerWindowStyle = if ($request.silent) { 'Hidden' } else { 'Normal' }
+  $installer = Start-Process -FilePath $request.installerPath -ArgumentList $installerArgs -WorkingDirectory $jobDir -WindowStyle $installerWindowStyle -Wait -PassThru
   $installer.Refresh()
   Write-UpdateStatus 'installed' ('Installer exit code: ' + $installer.ExitCode)
   if ($installer.ExitCode -ne 0) { throw ('Installer did not finish successfully. Exit code: ' + $installer.ExitCode) }
@@ -42,7 +51,7 @@ try {
   $expected = [version]$request.version
   if ($actual.Major -ne $expected.Major -or $actual.Minor -ne $expected.Minor -or $actual.Build -ne $expected.Build) { throw ('Installed version mismatch: ' + $installedVersion) }
   Write-UpdateStatus 'restarting' ('Starting application version ' + $installedVersion)
-  $restarted = Start-Process -FilePath $request.appPath -ArgumentList '--updated' -WorkingDirectory $installDir -WindowStyle Normal -PassThru
+  $restarted = Start-Process -FilePath $request.appPath -ArgumentList '--updated' -WorkingDirectory $installDir -WindowStyle Hidden -PassThru
   Start-Sleep -Milliseconds 2000
   $restarted.Refresh()
   if ($restarted.HasExited) {
@@ -56,7 +65,7 @@ try {
   Write-UpdateStatus 'failed' $failure
   if ($parentExited -and $null -ne $request -and (Test-Path -LiteralPath $request.appPath -PathType Leaf)) {
     try {
-      Start-Process -FilePath $request.appPath -ArgumentList '--dayan-update-recovery' -WorkingDirectory (Split-Path -Parent $request.appPath) -WindowStyle Normal | Out-Null
+      Start-Process -FilePath $request.appPath -ArgumentList '--dayan-update-recovery' -WorkingDirectory (Split-Path -Parent $request.appPath) -WindowStyle Hidden | Out-Null
     } catch { [System.IO.File]::AppendAllText($logPath, $_.Exception.Message, $encoding) }
   }
   if ($null -ne $request -and $request.notifyOnFailure) {

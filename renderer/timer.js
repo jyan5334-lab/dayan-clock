@@ -50,7 +50,7 @@
     const backgroundMarkup=backgrounds.map((b,index)=>`${index===0||b.group!==backgrounds[index-1].group?`<div class="background-group-heading">${b.group||'内置背景'}</div>`:''}<button type="button" class="background-choice cursor-interaction" data-background="${b.id}" aria-label="${b.label}" aria-pressed="false"><img src="${b.thumb||b.src}" alt="" loading="lazy"><span>${b.label}</span></button>`).join('');
     section.innerHTML=`<div class="timer ${variants[i]}" aria-label="${section.dataset.variant}"><header><div class="brand">${icon('timer')}<span>计时器</span></div><div class="modes" role="group" aria-label="显示模式"><button class="cursor-interaction" type="button" data-mode="up"><span class="mode-label">正计时</span></button><button class="cursor-interaction" type="button" data-mode="down"><span class="mode-label">倒计时</span></button><button class="cursor-interaction" type="button" data-mode="watch"><span class="mode-label">秒表</span></button><button class="cursor-interaction" type="button" data-mode="clock"><span class="mode-label">时钟</span></button></div></header><div class="display">${ring}<div class="readout" role="timer" aria-label="时间"><span class="digits">00:00</span><span class="fraction" hidden>.00</span></div><time class="date" hidden></time><span class="status" aria-live="polite">准备就绪</span></div><div class="settings"><label hidden><input type="number" class="minutes" min="0" max="5999" step="1" value="5" aria-label="分钟"> 分</label><label hidden><input type="number" class="seconds" min="0" max="59" step="1" value="0" aria-label="秒"> 秒</label></div><div class="actions"><button type="button" class="action primary cursor-interaction" data-action="toggle">${icon('play')}<span>开始</span></button><button type="button" class="action reset cursor-interaction" data-action="reset" aria-label="重置" data-tooltip="重置">${icon('rotate-ccw')}</button></div><div class="error" role="alert"></div><div class="background-tools"><button type="button" class="background-toggle cursor-interaction" data-background-toggle aria-label="选择背景" data-tooltip="选择背景" aria-expanded="false">${icon('image')}</button></div><div class="background-picker" id="background-picker-${i}" role="dialog" aria-label="背景选择" hidden><div class="picker-heading"><span>背景</span><button type="button" class="picker-close cursor-interaction" data-background-close aria-label="关闭背景选择">${icon('x')}</button></div><div class="background-grid">${backgroundMarkup}</div><button type="button" class="original-background cursor-interaction" data-background="original" aria-pressed="false">${icon('rotate-ccw')}<span>原始背景</span></button></div></div>`;
     const app=section.querySelector('.timer'),q=sel=>app.querySelector(sel);
-    app.insertAdjacentHTML('afterbegin','<div class="wallpaper-media" aria-hidden="true"></div>');
+    app.insertAdjacentHTML('afterbegin','<div class="wallpaper-transition" aria-hidden="true"></div><div class="wallpaper-media" aria-hidden="true"></div>');
     q('.date').insertAdjacentHTML('afterend','<div class="almanac" hidden aria-label="今日黄历"><div class="almanac-main"><span class="almanac-lunar"></span><span class="almanac-day"></span></div><div class="almanac-note"></div><div class="almanac-row"><span class="almanac-label good">宜</span><span data-almanac-yi></span></div><div class="almanac-row"><span class="almanac-label avoid">忌</span><span data-almanac-ji></span></div></div>');
     q('.brand span').textContent='DAYAN桌面';
     q('.almanac').insertAdjacentHTML('afterend',`<button type="button" class="unlock-launch" aria-label="点击解锁">${icon('lock-keyhole')}<span>点击解锁</span></button>`);
@@ -63,8 +63,8 @@
       const now=new Date();if(!s.running&&document.activeElement!==q('.minutes')&&document.activeElement!==q('.seconds')){q('.minutes').value=Math.floor(s.target/60000);q('.seconds').value=Math.floor(s.target/1000)%60;}
       const background=backgrounds.find(b=>b.id===s.background);
       const displayTiles=background&&presentationLayout?.scope==='all'&&presentationLayout.displays?.length?presentationLayout.displays:null;
-      const mediaLayout=displayTiles?JSON.stringify({area:presentationLayout.area,displays:displayTiles}):'';
-      const mediaKey=JSON.stringify({visible:!section.hidden,layout:mediaLayout});
+      const mediaLayout=displayTiles?JSON.stringify({area:presentationLayout.area,displays:[...displayTiles].sort((a,b)=>String(a.id).localeCompare(String(b.id)))}):'';
+      const mediaKey=JSON.stringify({visible:!section.hidden,layout:mediaLayout,primary:background?.companion?presentationLayout?.primaryDisplayId??presentationLayout?.content:null});
       if(lastBackground!==s.background||lastMediaKey!==mediaKey){
         app.classList.toggle('has-background',Boolean(background));
         app.classList.toggle('has-original-motion-background',Boolean(background?.originalColors));
@@ -72,24 +72,78 @@
         app.classList.toggle('has-motion-background',background?.kind==='video'||background?.kind==='html');
         app.style.setProperty('--wallpaper','none');
         const media=q('.wallpaper-media');
-        media.replaceChildren();
+        const transition=q('.wallpaper-transition');
+        const preserveTransition=background?.kind==='html';
+        if(section.hidden||!background||!preserveTransition){media.replaceChildren();transition.replaceChildren();}
+        else if(lastBackground!==s.background){
+          transition.replaceChildren();
+          [...media.children].forEach(frame=>transition.append(frame));
+        }
         // Only the visible style owns a live media element. Hidden styles are
         // still real DOM sections, but their animation frames must stay stopped.
         if(background&&!section.hidden){
+          const existing=new Map([...media.children]
+            .filter(frame=>frame.dataset.wallpaperBackground===background.id)
+            .map(frame=>[frame.dataset.display||'viewport',frame]));
+          const wanted=new Set((displayTiles||[null]).map(display=>String(display?.id??'viewport')));
+          for(const frame of [...media.children]){
+            const id=frame.dataset.display||'viewport';
+            if(frame.dataset.wallpaperBackground===background.id&&!wanted.has(id))frame.remove();
+          }
           for(const display of displayTiles||[null]){
-            const frame=document.createElement(background.kind==='html'?'iframe':background.kind==='video'?'video':'img');
-            if(background.kind==='html'){
-              frame.title=background.label;frame.tabIndex=-1;frame.setAttribute('aria-hidden','true');frame.setAttribute('loading','eager');
-            }else if(background.kind==='video'){
-              frame.autoplay=true;frame.loop=true;frame.muted=true;frame.playsInline=true;
-            }else{frame.alt='';frame.draggable=false;}
-            frame.src=background.src;
+            const id=String(display?.id??'viewport');
+            let frame=existing.get(id);
+            if(!frame){
+              frame=document.createElement(background.kind==='html'?'iframe':background.kind==='video'?'video':'img');
+              frame.dataset.wallpaperBackground=background.id;
+              frame.style.opacity=preserveTransition?'0':'1';
+              if(preserveTransition){
+                [...media.children].forEach(stale=>{stale.style.zIndex='1';});
+                frame.style.zIndex='2';
+              }
+              if(background.kind==='html'){
+                frame.title=background.label;frame.tabIndex=-1;frame.setAttribute('aria-hidden','true');frame.setAttribute('loading','eager');
+                frame.addEventListener('load',()=>{
+                  let checks=0;
+                  const reveal=()=>{
+                    if(frame.dataset.wallpaperBackground!==s.background)return;
+                    const ready=frame.contentDocument?.documentElement?.dataset.ready==='true';
+                    if(ready||checks++>40){
+                      frame.style.opacity='1';
+                      if(frame.dataset.wallpaperBackground!==s.background)return;
+                      transition.replaceChildren();
+                      return;
+                    }
+                    window.setTimeout(reveal,50);
+                  };
+                  reveal();
+                });
+              }else if(background.kind==='video'){
+                frame.autoplay=true;frame.loop=true;frame.muted=true;frame.playsInline=true;
+                frame.addEventListener('loadeddata',()=>{frame.style.opacity='1';},{once:true});
+              }else{frame.alt='';frame.draggable=false;frame.addEventListener('load',()=>{frame.style.opacity='1';},{once:true});}
+              if(background.companion){
+                frame.addEventListener('load',()=>frame.contentWindow?.postMessage({type:'dayan:wallpaper-context',greetings:frame.dataset.greetings==='true'},'*'));
+              }
+              frame.src=background.src;
+            }
             if(display){
               const bounds=display.bounds,area=presentationLayout.area;
               Object.assign(frame.style,{position:'absolute',left:`${bounds.x-area.x}px`,top:`${bounds.y-area.y}px`,width:`${bounds.width}px`,height:`${bounds.height}px`});
               frame.dataset.display=display.id;
             }
-            media.append(frame);
+            if(background.companion){
+              const primary=display?String(display.id)===String(presentationLayout.primaryDisplayId)||(!presentationLayout.primaryDisplayId&&display.bounds.x===presentationLayout.content?.x&&display.bounds.y===presentationLayout.content?.y):true;
+              const greetings=primary&&!document.documentElement.classList.contains('presentation-editor');
+              frame.dataset.greetings=String(greetings);
+              frame.contentWindow?.postMessage({type:'dayan:wallpaper-context',greetings},'*');
+            }
+            // Moving even a connected iframe can reload its document. Keep
+            // live media in place when only monitor geometry/order changes.
+            if(!frame.isConnected){
+              const stale=[...media.children].find(item=>item.dataset.wallpaperBackground!==background.id);
+              if(stale)media.insertBefore(frame,stale);else media.append(frame);
+            }
           }
         }
         app.querySelectorAll('[data-background]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.background===s.background)));

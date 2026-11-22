@@ -1,12 +1,14 @@
+const workspacePaths = require('./workspace-paths.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { chromium, _electron } = require(process.env.DAYAN_PLAYWRIGHT_MODULE || 'playwright');
 const { checkBackgroundSwitching } = require('./check-background-switching.cjs');
+const { checkIslandWallpaper } = require('./check-island-wallpaper.cjs');
 const root = path.resolve(__dirname, '..');
 const packaged = process.argv.includes('--packaged');
-const output = process.env.DAYAN_DYNAMIC_OUTPUT || 'D:/Codex/Outputs/DAYANDesktop/dynamic-backgrounds';
+const output = process.env.DAYAN_DYNAMIC_OUTPUT || workspacePaths.output('dynamic-backgrounds');
 fs.mkdirSync(output, { recursive: true });
 if (packaged) {
   const asar = require('@electron/asar');
@@ -28,10 +30,10 @@ const canvasScenes = [
 assert.match(fs.readFileSync(path.join(root, 'assets/backgrounds/dynamic/derived/fox_quest_wallpaper.html'), 'utf8'), /function drawHUD\(\) \{\s+return;/, 'Fox wallpaper adapter must suppress HUD and progress bar');
 let browser, desktop;
 (async () => {
-  browser = await chromium.launch({ headless: true, args: ['--allow-file-access-from-files'], ...(process.platform === 'win32' ? { channel: 'msedge' } : {}) });
+  browser = await chromium.launch({ headless: true, args: ['--allow-file-access-from-files'], ...(process.platform === 'win32' ? { executablePath: process.env.DAYAN_BROWSER_EXE || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' } : {}) });
   const context = await browser.newContext({ viewport: { width: 800, height: 500 } });
   const pixelReader = await context.newPage();
-  const data = fs.mkdtempSync('D:/Codex/Temp/dayan-dynamic-');
+  const data = fs.mkdtempSync(workspacePaths.temp('dayan-dynamic-'));
   const videoPath = path.join(data, 'test-cover.webm');
   fs.copyFileSync(path.join(__dirname, 'fixtures/wallpaper-cover.webm'), videoPath);
   await context.addInitScript(() => {
@@ -170,6 +172,7 @@ let browser, desktop;
     results.push({ scene: scene.id, sourcePreserved: true, controlsHidden: true, animationAdvances: true, coverage });
     await adapted.close();
   }
+  results.push(await checkIslandWallpaper(browser, output));
   await browser.close(); browser = null;
   fs.writeFileSync(path.join(data, 'preferences.json'), JSON.stringify({ settingsGuideVersion: 1, autoStart: false, style: 1 }));
   const env = { ...process.env, DAYAN_TEST: '1', DAYAN_TEST_DATA: data };
@@ -183,7 +186,7 @@ let browser, desktop;
   const selectionChecks = [];
   for (const scope of ['current', 'all']) selectionChecks.push(...await checkBackgroundSwitching(desktop, page, scope));
   const active = page.locator('#simple-timers > section:not([hidden])');
-  assert.deepEqual(await page.evaluate(() => window.timerBackgrounds.filter(item => item.group === '动态背景').map(item => item.id).sort()), [...scenes, ...canvasScenes].map(item => item.id).sort(), 'Every registered dynamic scene needs rendering coverage; new scenes must not be silently skipped');
+  assert.deepEqual(await page.evaluate(() => window.timerBackgrounds.filter(item => item.group === '动态背景').map(item => item.id).sort()), [...scenes, ...canvasScenes, { id: 'pelican-island' }].map(item => item.id).sort(), 'Every registered dynamic scene needs rendering coverage; new scenes must not be silently skipped');
   for (const scene of scenes) {
     await active.locator('[data-background-toggle]').click();
     assert.ok(await active.locator('.background-group-heading', { hasText: /^动态背景$/ }).isVisible());
@@ -239,6 +242,18 @@ let browser, desktop;
             return rect.left >= -.1 && rect.top >= -.1 && rect.right <= innerWidth + .1 && rect.bottom <= innerHeight + .1 && scene.left <= .1 && scene.top <= .1 && scene.right >= innerWidth - .1 && scene.bottom >= innerHeight - .1;
           });
         }
+      } else if (item.id === 'pelican-island') {
+        for (const handle of await active.locator('.wallpaper-media > iframe').elementHandles()) {
+          const frame = await handle.contentFrame();
+          await frame.waitForSelector('html[data-ready=true]');
+          await frame.waitForFunction(() => {
+            const p=window.__pelican, c=document.querySelector('canvas'), r=c.getBoundingClientRect();
+            return p.getState().frames>2 && Math.abs(r.width-innerWidth)<.1 && Math.abs(r.height-innerHeight)<.1 && Math.abs(p.camera.aspect-innerWidth/innerHeight)<.001;
+          });
+          const allowed=await handle.getAttribute('data-greetings');
+          await frame.waitForFunction(allowed=>window.__pelican.getState().greetingsAllowed===(allowed==='true'),allowed);
+        }
+        assert.equal(await active.locator('.wallpaper-media > iframe[data-greetings="true"]').count(), 1, 'Only the primary display may show greetings');
       } else if (canvasScenes.some(scene => scene.id === item.id)) {
         for (const handle of await active.locator('.wallpaper-media > iframe').elementHandles()) {
           const adapter = await handle.contentFrame(); await adapter.waitForSelector('html[data-ready=true]');

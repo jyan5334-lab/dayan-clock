@@ -13,7 +13,7 @@ const lock = JSON.parse(read('package-lock.json'));
 assert.equal(pkg.version, lock.version, 'Lockfile version differs');
 assert.equal(pkg.version, lock.packages[''].version, 'Root lock package version differs');
 assert.equal(pkg.private, true, 'Package must remain private');
-for (const module of ['desktop/password-recovery.cjs', 'desktop/presentation-editor.cjs', 'desktop/update-schedule.cjs']) assert.ok(pkg.build.files.includes(module), `Runtime module missing from package: ${module}`);
+for (const module of ['desktop/password-recovery.cjs', 'desktop/presentation-editor.cjs', 'desktop/update-schedule.cjs', 'desktop/update-controller.cjs', 'desktop/update-session.cjs', 'desktop/render-diagnostics.cjs']) assert.ok(pkg.build.files.includes(module), `Runtime module missing from package: ${module}`);
 for (const relative of ['index.html', 'desktop/main.cjs', 'desktop/preload.cjs', 'assets/icon.ico', 'assets/icon.png', 'LICENSE', 'THIRD_PARTY_NOTICES.md']) {
   assert.ok(fs.statSync(path.join(root, relative)).size > 0, `Missing ${relative}`);
 }
@@ -21,7 +21,7 @@ for (const relative of ['index.html', 'desktop/main.cjs', 'desktop/preload.cjs',
 const context = { window: {}, document: { baseURI: pathToFileURL(path.join(root, 'index.html')).href }, URL };
 vm.runInNewContext(read('renderer/backgrounds.js'), context);
 const backgrounds = context.window.timerBackgrounds;
-assert.equal(backgrounds.length, 28, 'Expected twenty-eight bundled wallpapers');
+assert.equal(backgrounds.length, 29, 'Expected twenty-nine bundled wallpapers');
 assert.equal(new Set(backgrounds.map(item => item.id)).size, backgrounds.length);
 for (const item of backgrounds) {
   assert.match(item.id, /^[a-z-]+$/);
@@ -29,7 +29,7 @@ for (const item of backgrounds) {
   assert.ok(file.startsWith(path.join(root, 'assets/backgrounds') + path.sep), 'Wallpaper escapes asset directory');
   const image = fs.readFileSync(file);
   if (path.extname(file) === '.html') {
-    assert.match(image.toString('utf8'), /requestAnimationFrame|src="animation.js"/);
+    assert.match(image.toString('utf8'), /requestAnimationFrame|src="animation.js"|src="derived\/island.bundle.js"/);
     assert.equal(item.kind, 'html');
     assert.ok(item.thumb && fs.existsSync(fileURLToPath(item.thumb)), `Missing preview for ${item.id}`);
   } else if (path.extname(file) === '.png') {

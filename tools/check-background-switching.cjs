@@ -1,3 +1,4 @@
+const workspacePaths = require('./workspace-paths.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -72,7 +73,7 @@ module.exports = { checkBackgroundSwitching };
 if (require.main === module) {
   let desktop;
   (async () => {
-    const data = fs.mkdtempSync('D:/Codex/Temp/dayan-background-switch-');
+    const data = fs.mkdtempSync(workspacePaths.temp('dayan-background-switch-'));
     fs.writeFileSync(path.join(data, 'preferences.json'), JSON.stringify({ settingsGuideVersion: 1, autoStart: false, style: 1 }));
     const packaged = process.argv.includes('--packaged');
     const env = { ...process.env, DAYAN_TEST: '1', DAYAN_TEST_DATA: data };

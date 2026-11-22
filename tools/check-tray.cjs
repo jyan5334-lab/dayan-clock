@@ -1,9 +1,10 @@
+const workspacePaths = require('./workspace-paths.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const { _electron } = require(process.env.DAYAN_PLAYWRIGHT_MODULE || 'playwright');
 const root = path.resolve(__dirname, '..');
-const testRoot = process.env.DAYAN_TEST_ROOT || 'D:/Codex/Temp';
+const testRoot = process.env.DAYAN_TEST_ROOT || workspacePaths.temp();
 fs.mkdirSync(testRoot, { recursive: true });
 const data = fs.mkdtempSync(path.join(testRoot, 'dayan-tray-'));
 const packaged = process.argv.includes('--packaged');

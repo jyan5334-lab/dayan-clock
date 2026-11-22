@@ -1,10 +1,11 @@
+const workspacePaths = require('./workspace-paths.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const { _electron } = require(process.env.DAYAN_PLAYWRIGHT_MODULE || 'playwright');
 const root = path.resolve(__dirname, '..');
 const packaged = process.argv.includes('--packaged');
-const output = fs.mkdtempSync('D:/Codex/Temp/dayan-display-settings-');
+const output = fs.mkdtempSync(workspacePaths.temp('dayan-display-settings-'));
 const preferences = path.join(output, 'preferences.json');
 // Existing preferences deliberately omit the new option to test upgrade defaults.
 fs.writeFileSync(preferences, JSON.stringify({ settingsGuideVersion: 1, autoStart: false, displaySettings: { showAlmanac: true } }));

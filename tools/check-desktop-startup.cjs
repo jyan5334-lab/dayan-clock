@@ -1,3 +1,4 @@
+const workspacePaths = require('./workspace-paths.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -5,7 +6,7 @@ const { spawnSync } = require('node:child_process');
 const { _electron } = require(process.env.DAYAN_PLAYWRIGHT_MODULE || 'playwright');
 const root = path.resolve(__dirname, '..');
 const packaged = process.argv.includes('--packaged');
-const output = fs.mkdtempSync('D:/Codex/Temp/dayan-desktop-startup-');
+const output = fs.mkdtempSync(workspacePaths.temp('dayan-desktop-startup-'));
 const native = args => {
   const result = spawnSync(path.join(root, 'assets/DAYANDesktopHost.exe'), args.map(String), { encoding: 'utf8', windowsHide: true });
   assert.equal(result.status, 0, result.stderr || result.stdout);

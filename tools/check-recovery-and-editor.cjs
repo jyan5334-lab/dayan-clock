@@ -1,3 +1,4 @@
+const workspacePaths = require('./workspace-paths.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -7,7 +8,7 @@ const { _electron } = require(process.env.DAYAN_PLAYWRIGHT_MODULE || 'playwright
 const recovery = require('../desktop/password-recovery.cjs');
 const root = path.resolve(__dirname, '..');
 const packaged = process.argv.includes('--packaged');
-const data = fs.mkdtempSync('D:/Codex/Temp/dayan-recovery-editor-');
+const data = fs.mkdtempSync(workspacePaths.temp('dayan-recovery-editor-'));
 const preferences = path.join(data, 'preferences.json');
 fs.writeFileSync(preferences, JSON.stringify({ settingsGuideVersion: 1, autoStart: false }));
 let desktop;

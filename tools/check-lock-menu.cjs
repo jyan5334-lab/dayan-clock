@@ -1,10 +1,11 @@
+const workspacePaths = require('./workspace-paths.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const { _electron } = require(process.env.DAYAN_PLAYWRIGHT_MODULE || 'playwright');
 const root = path.resolve(__dirname, '..'), packaged = process.argv.includes('--packaged');
-const data = fs.mkdtempSync('D:/Codex/Temp/dayan-lock-menu-'), errors = [], checks = [];
+const data = fs.mkdtempSync(workspacePaths.temp('dayan-lock-menu-')), errors = [], checks = [];
 fs.writeFileSync(path.join(data, 'preferences.json'), JSON.stringify({ settingsGuideVersion: 1, autoStart: false }));
 let app;
 async function launch() {
