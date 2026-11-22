@@ -18,15 +18,17 @@ replace(/window\.__appStarted = true;[\s\S]*?statusEl.textContent = [^;]+;/,'win
 // Keep the original artwork's resolution and let the runtime degrade only
 // after sustained frame pressure. The old area-based cap pushed ordinary
 // desktop displays below 1x and made the scene visibly soft.
-replace(/let pixelRatio = [^;]+;/,'let pixelRatio = Math.min(window.devicePixelRatio || 1, 2);');
+replace(/let pixelRatio = [^;]+;/,
+  'const pixelRatioCap = () => { const pixels = innerWidth * innerHeight; const cap = pixels >= 10000000 ? 1.25 : pixels >= 6000000 ? 1.5 : 2; return Math.min(window.devicePixelRatio || 1, cap); };\nlet pixelRatio = pixelRatioCap();');
 // Aerial views span a large island. High precision depth plus MSAA prevents
 // distant foliage, windows and shoreline surfaces from changing depth winner.
 replace(/const renderer = new THREE\.WebGLRenderer\(\{ antialias: false, powerPreference: 'high-performance' \}\);/,
   "const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', logarithmicDepthBuffer: true });");
+replace(/const composerRT = new THREE\.WebGLRenderTarget\(16, 16, \{ type: THREE\.HalfFloatType, samples: 4 \}\);/,
+  'const composerRT = new THREE.WebGLRenderTarget(16, 16, { type: THREE.HalfFloatType, samples: 2 });');
 replace(/const camera = new THREE\.PerspectiveCamera\(48, innerWidth \/ innerHeight, 0\.05, 4000\);/,
   'const camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 0.35, 3200);');
 replace(/const controls = new OrbitControls[\s\S]*?controls.zoomSpeed = 0.9;/,'');
-replace(/samples: 4/,'samples: 4');
 replace(/left: -11, right: 11, top: 11, bottom: -11, near: 1, far: 160/,
   'left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 220');
 replace(/  if \(envRT\) envRT.dispose\(\);\s*envRT = pmrem.fromScene\(envScene, 0, 1, 2000\);\s*scene.environment = envRT.texture;/,
@@ -40,7 +42,7 @@ replace(/const audio = \{ ctx:[\s\S]*$/,
 replace(/for \(const arr of cells\.values\(\)\) group\.add\(instanced\(geo, mat, arr, opts\)\);/,
   'for (const arr of cells.values()) { const mesh = instanced(geo, mat, arr, opts); if (mesh.geometry.boundingSphere) mesh.geometry.boundingSphere.radius += cell * 0.65; group.add(mesh); }');
 replace(/  renderer.setSize\(innerWidth, innerHeight\);\s*composer.setSize\(innerWidth, innerHeight\);/,
-  '  renderer.setPixelRatio(pixelRatio); composer.setPixelRatio(pixelRatio);\n  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);');
+  '  pixelRatio = Math.min(pixelRatio, pixelRatioCap()); renderer.setPixelRatio(pixelRatio); composer.setPixelRatio(pixelRatio);\n  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);');
 fs.mkdirSync(path.join(dir,'derived'),{recursive:true});
 esbuild.buildSync({stdin:{contents:code,resolveDir:deps,sourcefile:'pelican-island-adapted.js'},bundle:true,format:'iife',platform:'browser',target:'chrome120',minify:true,legalComments:'eof',outfile:path.join(dir,'derived/island.bundle.js')});
 fs.copyFileSync(path.join(deps,'node_modules/three/LICENSE'),path.join(dir,'derived/THREE-LICENSE.txt'));

@@ -59,6 +59,12 @@
     const artwork=window.dayanStyles.attach(app,variants[i]);
     let lastDisplay='',lastAction='',lastStatus='',lastBackground=null,lastMediaKey=null;
     function closeBackgrounds(){q('.background-picker').hidden=true;q('.background-toggle').setAttribute('aria-expanded','false');}
+    function releaseMediaNode(node){
+      if(node instanceof HTMLVideoElement){node.pause();node.removeAttribute('src');node.load();}
+      else if(node instanceof HTMLIFrameElement)node.src='about:blank';
+      node.remove();
+    }
+    function clearMedia(container){[...container.children].forEach(releaseMediaNode);}
     function render() {
       const now=new Date();if(!s.running&&document.activeElement!==q('.minutes')&&document.activeElement!==q('.seconds')){q('.minutes').value=Math.floor(s.target/60000);q('.seconds').value=Math.floor(s.target/1000)%60;}
       const background=backgrounds.find(b=>b.id===s.background);
@@ -74,9 +80,9 @@
         const media=q('.wallpaper-media');
         const transition=q('.wallpaper-transition');
         const preserveTransition=background?.kind==='html';
-        if(section.hidden||!background||!preserveTransition){media.replaceChildren();transition.replaceChildren();}
+        if(section.hidden||!background||!preserveTransition){clearMedia(media);clearMedia(transition);}
         else if(lastBackground!==s.background){
-          transition.replaceChildren();
+          clearMedia(transition);
           [...media.children].forEach(frame=>transition.append(frame));
         }
         // Only the visible style owns a live media element. Hidden styles are
@@ -88,7 +94,7 @@
           const wanted=new Set((displayTiles||[null]).map(display=>String(display?.id??'viewport')));
           for(const frame of [...media.children]){
             const id=frame.dataset.display||'viewport';
-            if(frame.dataset.wallpaperBackground===background.id&&!wanted.has(id))frame.remove();
+            if(frame.dataset.wallpaperBackground===background.id&&!wanted.has(id))releaseMediaNode(frame);
           }
           for(const display of displayTiles||[null]){
             const id=String(display?.id??'viewport');
@@ -111,7 +117,7 @@
                     if(ready||checks++>40){
                       frame.style.opacity='1';
                       if(frame.dataset.wallpaperBackground!==s.background)return;
-                      transition.replaceChildren();
+                      clearMedia(transition);
                       return;
                     }
                     window.setTimeout(reveal,50);
