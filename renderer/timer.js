@@ -25,12 +25,22 @@
     root.classList.toggle('presentation-all',Boolean(all));
     if(!layout?.area||!layout?.content){
       for(const name of ['--dayan-primary-left','--dayan-primary-top','--dayan-primary-width','--dayan-primary-height'])root.style.removeProperty(name);
+      models.forEach(model=>applyClockPosition(model));
       return;
     }
     root.style.setProperty('--dayan-primary-left',`${layout.content.x-layout.area.x}px`);
     root.style.setProperty('--dayan-primary-top',`${layout.content.y-layout.area.y}px`);
     root.style.setProperty('--dayan-primary-width',`${layout.content.width}px`);
     root.style.setProperty('--dayan-primary-height',`${layout.content.height}px`);
+    models.forEach(model=>applyClockPosition(model));
+  };
+  const applyClockPosition=model=>{
+    const position=displaySettings.clockPosition||{x:0,y:0};
+    const width=presentationLayout?.content?.width||innerWidth,height=presentationLayout?.content?.height||innerHeight;
+    const active=Boolean(presentationLayout?.content);
+    const dx=active?position.x*width:0,dy=active?position.y*height:0;
+    const elements=[...model.app.querySelectorAll('.readout,.date,.artwork,.ring,.marker,.almanac')].filter(element=>!element.closest('.artwork .readout'));
+    elements.forEach(element=>{element.style.translate=`${dx}px ${dy}px`;});
   };
   syncPresentationLayout(window.dayanPresentationLayout);
   root.addEventListener('dayan:presentation-layout',event=>syncPresentationLayout(event.detail));
@@ -68,6 +78,7 @@
     function render() {
       const now=new Date();if(!s.running&&document.activeElement!==q('.minutes')&&document.activeElement!==q('.seconds')){q('.minutes').value=Math.floor(s.target/60000);q('.seconds').value=Math.floor(s.target/1000)%60;}
       const background=backgrounds.find(b=>b.id===s.background);
+      document.documentElement.dataset.clockDrag=String(displaySettings.dragClock===true);
       const displayTiles=background&&presentationLayout?.scope==='all'&&presentationLayout.displays?.length?presentationLayout.displays:null;
       const mediaLayout=displayTiles?JSON.stringify({area:presentationLayout.area,displays:[...displayTiles].sort((a,b)=>String(a.id).localeCompare(String(b.id)))}):'';
       const mediaKey=JSON.stringify({visible:!section.hidden,layout:mediaLayout,primary:background?.companion?presentationLayout?.primaryDisplayId??presentationLayout?.content:null});
@@ -234,6 +245,27 @@
       }
       render();save();
     });
+    let dragPointer=null;
+    app.addEventListener('pointerdown',event=>{
+      if(!displaySettings.dragClock||!displaySettings.showClockDate||document.documentElement.classList.contains('locked')||document.documentElement.dataset.fullscreen!=='true'||event.button!==0)return;
+      const target=event.target.closest('.readout,.date,.artwork,.ring,.marker,.almanac');
+      if(!target||target.closest('.artwork .readout'))return;
+      dragPointer={id:event.pointerId,x:event.clientX,y:event.clientY,position:{...(displaySettings.clockPosition||{x:0,y:0})}};
+      target.setPointerCapture(event.pointerId);event.preventDefault();
+    });
+    app.addEventListener('pointermove',event=>{
+      if(!dragPointer||event.pointerId!==dragPointer.id)return;
+      const width=presentationLayout?.content?.width||innerWidth,height=presentationLayout?.content?.height||innerHeight;
+      const bounded=value=>Math.max(-1,Math.min(1,value));
+      displaySettings={...displaySettings,clockPosition:{x:bounded(dragPointer.position.x+(event.clientX-dragPointer.x)/width),y:bounded(dragPointer.position.y+(event.clientY-dragPointer.y)/height)}};
+      window.dayanDisplaySettings=displaySettings;models.forEach(applyClockPosition);
+    });
+    const finishClockDrag=event=>{
+      if(!dragPointer||event.pointerId!==dragPointer.id)return;
+      dragPointer=null;
+      window.dispatchEvent(new CustomEvent('dayan:clock-position',{detail:displaySettings.clockPosition}));
+    };
+    app.addEventListener('pointerup',finishClockDrag);app.addEventListener('pointercancel',finishClockDrag);
     app.addEventListener('keydown',event=>{if(event.key==='Escape'&&!q('.background-picker').hidden){closeBackgrounds();q('.background-toggle').focus();}});
     app.addEventListener('click',event=>{if(!event.target.closest('.background-picker,.background-tools'))closeBackgrounds();});
     app.querySelectorAll('input').forEach(input=>input.addEventListener('change',()=>{
@@ -243,7 +275,8 @@
       }
       s.target=(minutes*60+seconds)*1000;reset();render();save();
     }));
-    models.push({s,render,restore,section});
+    models.push({s,render,restore,section,app});
+    applyClockPosition(models.at(-1));
     const state=window.openai?.widgetState?.privateContent;
     if(state?.version===2)restore(state.simpleTimers?.[0]);
     s.clock=true;render();
@@ -253,7 +286,7 @@
     }
   });
   root.addEventListener('dayan:refresh',()=>models.forEach(model=>model.render()));
-  root.addEventListener('dayan:display-settings',event=>{displaySettings=event.detail||displaySettings;models.forEach(model=>model.render());});
+  root.addEventListener('dayan:display-settings',event=>{displaySettings=event.detail||displaySettings;models.forEach(model=>{model.render();applyClockPosition(model);});});
   root.addEventListener('dayan:checkpoint',save);
   refresh();
   let ticker;

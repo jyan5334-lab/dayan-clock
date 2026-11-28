@@ -21,25 +21,7 @@
     setBusy(false);
     confirm.querySelector('span').textContent = testOnly ? '测试更新不可安装' : '现在更新';
   };
-  const show = info => {
-    if (busy) return;
-    testOnly = Boolean(info.testOnly);
-    progress = { received: 0, total: info.size || 0, percent: 0 };
-    document.getElementById('update-title').textContent = testOnly ? '本地更新测试 · 禁止安装' : '发现新版本';
-    if (testOnly) document.title = 'DAYAN桌面 · 本地更新测试';
-    document.getElementById('update-version').textContent = `当前版本 ${info.currentVersion || '—'} · 新版本 ${info.version}`;
-    document.getElementById('update-notes').textContent = info.notes || '新版本已准备好，更新完成后程序会自动重新打开。';
-    errorText.hidden = true;
-    progressWrap.hidden = true;
-    setBusy(false);
-    confirm.querySelector('span').textContent = testOnly ? '测试更新不可安装' : '现在更新';
-    modal.hidden = false;
-    lucide.createIcons();
-    (testOnly ? cancel : confirm).focus({ preventScroll:true });
-    document.documentElement.dataset.updateReady = 'true';
-  };
-  bridge.onUpdateAvailable(show);
-  bridge.onUpdateProgress(next => {
+  const renderProgress = next => {
     progress = { ...progress, ...next };
     const total = Math.max(0, Number(progress.total) || 0);
     const received = Math.max(0, Math.min(Number(progress.received) || 0, total || Infinity));
@@ -53,10 +35,30 @@
     document.getElementById('update-downloaded').textContent = `已下载 ${mb(received)}`;
     document.getElementById('update-total').textContent = total ? `总大小 ${mb(total)}` : '总大小 获取中…';
     document.getElementById('update-percent').textContent = `${percent.toFixed(1)}%`;
-    document.getElementById('update-progress-text').textContent = (next.status || '正在下载更新…').replace(/\s*·\s*[\d.]+\s*MB\/s\s*$/, '');
+    document.getElementById('update-progress-text').textContent = (progress.status || '正在下载更新…').replace(/\s*·\s*[\d.]+\s*MB\/s\s*$/, '');
     document.getElementById('update-speed').textContent = percent >= 100 ? '' : `${mb(Math.max(0, Number(progress.bytesPerSecond) || 0))}/s`;
     if (busy) confirm.querySelector('span').textContent = percent >= 100 ? '正在启动安装程序…' : '正在下载更新…';
-  });
+  };
+  const show = info => {
+    if (busy && !info.busy) return;
+    testOnly = Boolean(info.testOnly);
+    progress = info.progress ? { received: 0, total: info.size || 0, percent: 0, ...info.progress } : { received: 0, total: info.size || 0, percent: 0 };
+    document.getElementById('update-title').textContent = testOnly ? '本地更新测试 · 禁止安装' : '发现新版本';
+    if (testOnly) document.title = 'DAYAN桌面 · 本地更新测试';
+    document.getElementById('update-version').textContent = `当前版本 ${info.currentVersion || '—'} · 新版本 ${info.version}`;
+    document.getElementById('update-notes').textContent = info.notes || '新版本已准备好，更新完成后程序会自动重新打开。';
+    errorText.hidden = true;
+    progressWrap.hidden = !info.progress;
+    setBusy(Boolean(info.busy));
+    confirm.querySelector('span').textContent = info.busy ? '后台更新进行中…' : testOnly ? '测试更新不可安装' : '现在更新';
+    if (info.progress) renderProgress(info.progress);
+    modal.hidden = false;
+    lucide.createIcons();
+    if (!info.busy) (testOnly ? cancel : confirm).focus({ preventScroll:true });
+    document.documentElement.dataset.updateReady = 'true';
+  };
+  bridge.onUpdateAvailable(show);
+  bridge.onUpdateProgress(renderProgress);
   bridge.onUpdateError(showError);
   confirm.addEventListener('click', async () => {
     if (busy || testOnly) return;

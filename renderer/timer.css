@@ -249,6 +249,7 @@
   #simple-timers .terminal .fraction { font-size:19px; }
 }
 #simple-timers .date { position:relative;display:block;margin-top:24px;color:var(--text);font:14px/1.5 "Segoe UI","Microsoft YaHei",sans-serif;font-variant-numeric:tabular-nums; }
+html[data-clock-drag="true"] #simple-timers .readout,html[data-clock-drag="true"] #simple-timers .date,html[data-clock-drag="true"] #simple-timers .artwork,html[data-clock-drag="true"] #simple-timers .ring,html[data-clock-drag="true"] #simple-timers .marker,html[data-clock-drag="true"] #simple-timers .almanac { cursor:move; }
 #simple-timers .has-background { --surface:#10171b;--text:#f3f8f6;--muted:#c9d6d4;--line:#ffffff50;background-color:#0c1216;background-image:var(--wallpaper);background-size:cover;background-position:center; }
 #simple-timers .has-background::before { content:"";position:absolute;inset:0;background:linear-gradient(180deg,#04080bc4 0%,#04080b33 20%,#04080b33 70%,#04080bd1 100%),linear-gradient(180deg,transparent 10%,#04080b99 30%,#04080b99 58%,transparent 77%);pointer-events:none;z-index:0; }
 #simple-timers .has-background .display,#simple-timers .has-background .settings,#simple-timers .has-background .error { position:relative;z-index:1; }

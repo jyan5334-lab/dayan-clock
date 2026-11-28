@@ -47,6 +47,7 @@
   const settingsFooters = [...document.querySelectorAll('[data-settings-footer]')];
   const showAlmanac = document.getElementById('show-almanac');
   const showClockDate = document.getElementById('show-clock-date');
+  const dragClockPosition = document.getElementById('drag-clock-position');
   const modeVisibility = [...document.querySelectorAll('[data-mode-visibility]')];
   const autoStart = document.getElementById('auto-start');
   const autoStartStatus = document.getElementById('auto-start-status');
@@ -144,7 +145,9 @@
   };
   const normalizeDisplaySettings = value => {
     const modes = value?.modes && typeof value.modes === 'object' ? value.modes : {};
-    return { showAlmanac: value?.showAlmanac !== false, showClockDate: value?.showClockDate !== false, modes: { clock: modes.clock === true, watch: modes.watch !== false, down: modes.down !== false, up: modes.up !== false } };
+    const position = value?.clockPosition && typeof value.clockPosition === 'object' ? value.clockPosition : {};
+    const bounded = item => Number.isFinite(item) ? Math.max(-1, Math.min(1, item)) : 0;
+    return { showAlmanac: value?.showAlmanac !== false, showClockDate: value?.showClockDate !== false, dragClock: value?.dragClock === true, clockPosition: { x: bounded(position.x), y: bounded(position.y) }, modes: { clock: modes.clock === true, watch: modes.watch !== false, down: modes.down !== false, up: modes.up !== false } };
   };
   const selectSettingsTab = name => {
     const selected = settingsTabs.some(tab => tab.dataset.settingsTab === name) ? name : 'policy';
@@ -156,6 +159,7 @@
     window.dayanDisplaySettings = displaySettings;
     showAlmanac.checked = displaySettings.showAlmanac;
     showClockDate.checked = displaySettings.showClockDate;
+    dragClockPosition.checked = displaySettings.dragClock;
     modeVisibility.forEach(input => { input.checked = displaySettings.modes[input.dataset.modeVisibility] !== false; });
     document.getElementById('simple-timers').dispatchEvent(new CustomEvent('dayan:display-settings', { detail: displaySettings }));
   };
@@ -292,6 +296,12 @@
     document.getElementById('simple-timers').dispatchEvent(new Event('dayan:refresh'));
   };
   const save = () => bridge.save({ widget, style, displaySettings, windowLayers, autoStart: autoStartEnabled });
+  addEventListener('dayan:clock-position', event => {
+    const position = event.detail;
+    if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return;
+    displaySettings = { ...displaySettings, clockPosition: { x: Math.max(-1, Math.min(1, position.x)), y: Math.max(-1, Math.min(1, position.y)) } };
+    save();
+  });
   addEventListener('beforeunload', () => {
     if (editorMode) return;
     document.getElementById('simple-timers').dispatchEvent(new Event('dayan:checkpoint'));
@@ -362,6 +372,15 @@
   settingsTabs.forEach(tab => tab.addEventListener('click', () => { selectSettingsTab(tab.dataset.settingsTab); if (tab.dataset.settingsTab === 'policy') refreshPolicy(); }));
   showAlmanac.addEventListener('change', () => { displaySettings = { ...displaySettings, showAlmanac: showAlmanac.checked }; syncDisplaySettings(); save(); });
   showClockDate.addEventListener('change', () => { displaySettings = { ...displaySettings, showClockDate: showClockDate.checked }; syncDisplaySettings(); save(); });
+  dragClockPosition.addEventListener('change', async () => {
+    displaySettings = { ...displaySettings, dragClock: dragClockPosition.checked };
+    if (!await bridge.setClockDragMode(displaySettings.dragClock)) {
+      displaySettings = { ...displaySettings, dragClock: false };
+      syncDisplaySettings();
+      return;
+    }
+    syncDisplaySettings(); save();
+  });
   modeVisibility.forEach(input => input.addEventListener('change', () => { displaySettings = { ...displaySettings, modes: { ...displaySettings.modes, [input.dataset.modeVisibility]: input.checked } }; syncDisplaySettings(); save(); }));
   windowLayerInputs.forEach(input => input.addEventListener('change', () => {
     windowLayers = { ...windowLayers, [input.dataset.windowLayer || 'displayScope']: input.value };

@@ -33,8 +33,9 @@ replace(/left: -11, right: 11, top: 11, bottom: -11, near: 1, far: 160/,
   'left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 220');
 replace(/  if \(envRT\) envRT.dispose\(\);\s*envRT = pmrem.fromScene\(envScene, 0, 1, 2000\);\s*scene.environment = envRT.texture;/,
   '  const nextEnvironment = pmrem.fromScene(envScene, 0, 1, 2000);\n    const previousEnvironment = envRT; envRT = nextEnvironment;\n    scene.environment = envRT.texture;\n    if (previousEnvironment) previousEnvironment.dispose();');
+// PMREM generation is synchronous; runtime requests it only at idle startup or context recovery.
 replace(/if \(force \|\| \(Math\.abs\(e - envLastE\) > 1\.2 && now - envLastT > 350\)\) \{/,
-  'if (force || (environmentReady && Math.abs(e - envLastE) > 1.2 && now - envLastT > 350)) {');
+  'if (force) {');
 replace(/scene\.environment = envRT\.texture;\n    if \(previousEnvironment\) previousEnvironment\.dispose\(\);/,
   'scene.environment = envRT.texture;\n    environmentReady = true;\n    if (previousEnvironment) previousEnvironment.dispose();');
 replace(/const audio = \{ ctx:[\s\S]*$/,

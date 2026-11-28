@@ -8,7 +8,7 @@ const packaged = process.argv.includes('--packaged');
 const output = fs.mkdtempSync(workspacePaths.temp('dayan-display-settings-'));
 const preferences = path.join(output, 'preferences.json');
 // Existing preferences deliberately omit the new option to test upgrade defaults.
-fs.writeFileSync(preferences, JSON.stringify({ settingsGuideVersion: 1, autoStart: false, displaySettings: { showAlmanac: true } }));
+fs.writeFileSync(preferences, JSON.stringify({ settingsGuideVersion: 1, autoStart: false, displaySettings: { showAlmanac: true, dragClock: true, clockPosition: { x: 0.1, y: 0.2 } } }));
 let desktop;
 async function launch() {
   const env = { ...process.env, DAYAN_TEST: '1', DAYAN_TEST_DATA: output };
@@ -28,6 +28,8 @@ async function change(page, clock, almanac) {
 }
 (async () => {
   let page = await launch();
+  assert.equal(await page.locator('#drag-clock-position').isChecked(), false, 'Position-edit mode must not capture desktop icons after restart');
+  assert.deepEqual((await page.evaluate(() => window.dayanDisplaySettings.clockPosition)), { x: 0.1, y: 0.2 }, 'Restart must retain the clock position');
   await page.locator('#settings-toggle').click();
   await page.locator('[data-settings-tab=almanac]').click();
   assert.equal(await page.locator('#show-clock-date').isChecked(), true);
@@ -35,15 +37,43 @@ async function change(page, clock, almanac) {
   await page.screenshot({ path: path.join(output, 'settings.png') });
   await page.locator('#settings-close').click();
   const checks = [];
+  let movedPosition;
   for (const fullscreen of [false, true]) {
     if (fullscreen) {
       await desktop.evaluate(({ BrowserWindow }) => {
         const win = BrowserWindow.getAllWindows()[0];
         win.setAspectRatio(0);
-        win.setBounds({ x: 0, y: 0, width: 1920, height: 1080 });
+        win.setBounds({ x: -1280, y: -900, width: 3200, height: 1980 });
         win.webContents.send('dayan:window-state', { fullscreen: true, locked: false, presentationLayout: { scope: 'all', area: { x: -1280, y: -900, width: 3200, height: 1980 }, content: { x: 0, y: 0, width: 1920, height: 1080 } } });
       });
       await page.waitForSelector('html[data-fullscreen=true]');
+      assert.equal(await page.locator('#simple-timers > section:not([hidden]) .date').evaluate(element => element.style.translate), '192px 216px', 'Saved position must apply when fullscreen is restored');
+      await page.evaluate(() => {
+        document.getElementById('settings-toggle').click();
+        document.querySelector('[data-settings-tab=almanac]').click();
+        document.getElementById('show-clock-date').click();
+        document.getElementById('drag-clock-position').click();
+        document.getElementById('settings-close').click();
+      });
+      const date = page.locator('#simple-timers > section:not([hidden]) .date');
+      const dateBounds = await date.boundingBox();
+      assert.ok(dateBounds?.width > 0, 'Date must be visible before repositioning');
+      await page.evaluate(() => { window.__dragPointerTrace = []; document.addEventListener('pointerdown', event => window.__dragPointerTrace.push({ target: event.target.className?.baseVal || event.target.className, x: event.clientX, y: event.clientY, fullscreen: document.documentElement.dataset.fullscreen, drag: window.dayanDisplaySettings.dragClock }), true); });
+      await page.mouse.move(dateBounds.x + dateBounds.width / 2, dateBounds.y + dateBounds.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(dateBounds.x + dateBounds.width / 2 + 120, dateBounds.y + dateBounds.height / 2 + 80, { steps: 5 });
+      await page.mouse.up();
+      await page.waitForTimeout(100);
+      const dragDiagnostics = await page.evaluate(() => ({ position: window.dayanDisplaySettings.clockPosition, trace: window.__dragPointerTrace, mode: document.documentElement.dataset.clockDrag, date: document.querySelector('#simple-timers > section:not([hidden]) .date').getBoundingClientRect().toJSON() }));
+      assert.ok(Math.abs(dragDiagnostics.position.x) > 0.01 && Math.abs(dragDiagnostics.position.y) > 0.01, JSON.stringify(dragDiagnostics));
+      movedPosition = await page.evaluate(() => window.dayanDisplaySettings.clockPosition);
+      await page.evaluate(() => {
+        document.getElementById('settings-toggle').click();
+        document.querySelector('[data-settings-tab=almanac]').click();
+        document.getElementById('drag-clock-position').click();
+        document.getElementById('settings-close').click();
+      });
+      checks.push({ drag: true, savedPosition: movedPosition, disabledRestoresPassThrough: true });
     }
     const count = await page.locator('#style-menu [data-style]').count();
     for (let style = 0; style < count; style++) {
@@ -78,6 +108,8 @@ async function change(page, clock, almanac) {
   desktop = null;
   assert.equal(JSON.parse(fs.readFileSync(preferences)).displaySettings.showClockDate, false);
   page = await launch();
+  assert.deepEqual(JSON.parse(fs.readFileSync(preferences)).displaySettings.clockPosition, movedPosition);
+  assert.equal(JSON.parse(fs.readFileSync(preferences)).displaySettings.dragClock, false);
   assert.equal(await page.locator('#show-clock-date').isChecked(), false);
   assert.equal(await page.locator('#show-almanac').isChecked(), false);
   assert.equal(await page.locator('[data-variant]:not([hidden]) .date').isVisible(), false);
@@ -94,6 +126,6 @@ async function change(page, clock, almanac) {
   page = await launch();
   assert.equal(await page.locator('#show-clock-date').isChecked(), true);
   assert.equal(await page.locator('[data-variant]:not([hidden]) .date').isVisible(), true);
-  fs.writeFileSync(path.join(output, 'validation.json'), JSON.stringify({ result: 'passed', packaged, checks, restart: 'both values persisted', unlock: 'visible with clock and almanac hidden', timers: 'all three modes visible' }, null, 2));
+  fs.writeFileSync(path.join(output, 'validation.json'), JSON.stringify({ result: 'passed', packaged, checks, restart: 'display toggles and dragged position persisted', unlock: 'visible with clock and almanac hidden', timers: 'all three modes visible' }, null, 2));
   console.log(JSON.stringify({ result: 'passed', packaged, checks: checks.length, output }));
 })().catch(error => { console.error(error.stack); process.exitCode = 1; }).finally(async () => { if (desktop) await desktop.close(); });

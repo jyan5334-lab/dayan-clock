@@ -122,12 +122,15 @@ const readLog = () => fs.readFileSync(path.join(data, 'diagnostics/render-events
   };
   const initialGeometry = nativeGeometry();
   for (let i = 0; i < 3; i++) {
+    const attachesBeforeMenu = attachments();
     await desktop.evaluate(() => globalThis.__dayanTray.popUpContextMenu());
     await page.waitForTimeout(350);
     assert.deepEqual(nativeGeometry(), initialGeometry, 'Opening real tray menu must not clip native wallpaper geometry');
+    assert.equal(attachments(), attachesBeforeMenu, 'An open tray menu must not repeatedly reattach the desktop layer');
     await desktop.evaluate(() => globalThis.__dayanTray.closeContextMenu());
     await page.waitForTimeout(350);
     assert.deepEqual(nativeGeometry(), initialGeometry, 'Closing real tray menu must preserve native wallpaper geometry');
+    assert.ok(attachments() <= attachesBeforeMenu + 1, 'Closing the tray menu may reconcile once but must not churn native attachments');
   }
 
   // Real elapsed soak, not a claim of day-long or every-frame acceptance.

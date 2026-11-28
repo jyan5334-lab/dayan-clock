@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('dayan', {
   resizeStart: (corner, pointer) => ipcRenderer.send('dayan:resize-start', corner, pointer),
   resizeMove: pointer => ipcRenderer.send('dayan:resize-move', pointer),
   resizeEnd: () => ipcRenderer.send('dayan:resize-end'),
+  setClockDragMode: enabled => ipcRenderer.invoke('dayan:clock-drag-mode', enabled === true),
   onWindowState: callback => {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on('dayan:window-state', listener);

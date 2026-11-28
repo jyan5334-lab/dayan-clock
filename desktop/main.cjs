@@ -36,7 +36,7 @@ let windowedBounds, presentationRequested = false, restoringBounds = false, rest
 let presentationDisplayId;
 let renderDiagnostics;
 let desktopHost, wallpaperControls, desktopHostDesired = false, desktopHostQueue = Promise.resolve(), desktopHostRequest = 0;
-let updateInfo = null, updateBusy = false, updateCheckPromise;
+let updateInfo = null, updateBusy = false, updateCheckPromise, updateProgress = null;
 let updateWindow, automaticUpdateTimer, rendererReady = false, updateDismissed = false, automaticUpdateAttempt = 0;
 let scheduledUpdatePending = false;
 let updateResume, legacyUpdateResume = false, startupRestoring = true, systemLocked = false, deferredUpdateTimer, automaticInstallAttempt = 0;
@@ -92,7 +92,9 @@ const updateController = createUpdateController({
 
 function normalizeDisplaySettings(value) {
   const modes = value?.modes && typeof value.modes === 'object' ? value.modes : {};
-  return { showAlmanac: value?.showAlmanac !== false, showClockDate: value?.showClockDate !== false, modes: { clock: modes.clock === true, watch: modes.watch !== false, down: modes.down !== false, up: modes.up !== false } };
+  const position = value?.clockPosition && typeof value.clockPosition === 'object' ? value.clockPosition : {};
+  const bounded = item => Number.isFinite(item) ? Math.max(-1, Math.min(1, item)) : 0;
+  return { showAlmanac: value?.showAlmanac !== false, showClockDate: value?.showClockDate !== false, dragClock: value?.dragClock === true, clockPosition: { x: bounded(position.x), y: bounded(position.y) }, modes: { clock: modes.clock === true, watch: modes.watch !== false, down: modes.down !== false, up: modes.up !== false } };
 }
 
 function normalizeWindowLayers(value) {
@@ -194,7 +196,8 @@ function normalizeUpdatePayload(payload) {
 }
 
 function sendUpdateProgress(progress) {
-  if (updateWindow && !updateWindow.isDestroyed()) updateWindow.webContents.send('dayan:update-progress', progress);
+  updateProgress = { ...(updateProgress || {}), ...progress };
+  if (updateWindow && !updateWindow.isDestroyed()) updateWindow.webContents.send('dayan:update-progress', updateProgress);
 }
 
 function describeUpdateError(error) {
@@ -250,7 +253,13 @@ async function checkForUpdates() {
       const suppliesDigest = candidate.version === remote.version && !/^[a-f0-9]{64}$/i.test(remote.sha256) && /^[a-f0-9]{64}$/i.test(candidate.sha256);
       remote = isNewerVersion(candidate.version, remote.version) || suppliesDigest ? candidate : mergeUpdateSources(remote, candidate);
     }
-    if (!remote || !isNewerVersion(remote.version, app.getVersion())) { updateInfo = null; return { available: false, currentVersion: app.getVersion(), checkedAt: new Date().toISOString() }; }
+    if (!remote || !isNewerVersion(remote.version, app.getVersion())) {
+      updateInfo = null;
+      updateProgress = null;
+      return { available: false, currentVersion: app.getVersion(), checkedAt: new Date().toISOString() };
+    }
+    const identityChanged = updateInfo && (updateInfo.version !== remote.version || updateInfo.sha256 !== remote.sha256);
+    if (identityChanged) updateProgress = null;
     updateInfo = { ...remote, currentVersion: app.getVersion(), testOnly: Boolean(updateMode.fixtureUrl) };
     return { available: true, ...updateInfo };
   })().catch(error => {
@@ -272,11 +281,11 @@ function offerUpdate({ manual = false } = {}) {
   if (!updateInfo || !mainWindow || mainWindow.isDestroyed() || securityLocked || lockStarting || quitting) return;
   if (!manual && (updateDismissed || state.updateReminderDate === localUpdateDate())) return;
   if (updateWindow && !updateWindow.isDestroyed()) {
-    if (!updateBusy) updateWindow.webContents.send('dayan:update-available', updateInfo);
+    if (!updateBusy || manual) updateWindow.webContents.send('dayan:update-available', { ...updateInfo, busy: updateBusy, progress: updateProgress });
     if (!updateMode.hideWindow) { updateWindow.show(); updateWindow.focus(); }
     return;
   }
-  if (updateBusy) return;
+  if (updateBusy && !manual) return;
   // Keep the wallpaper attached to Explorer; only this small prompt floats above it.
   const area = screen.getPrimaryDisplay().workArea;
   const width = Math.min(600, area.width - 24), height = Math.min(660, area.height - 24);
@@ -493,6 +502,10 @@ function readState() {
     if (saved && typeof saved === 'object' && !Array.isArray(saved)) state = saved;
   } catch {}
   state.displaySettings = normalizeDisplaySettings(state.displaySettings || DEFAULT_DISPLAY_SETTINGS);
+  if (state.displaySettings.dragClock) {
+    state.displaySettings.dragClock = false;
+    scheduleSave();
+  }
   state.windowLayers = normalizeWindowLayers(state.windowLayers);
   state.autoStart = state.autoStart !== false;
 }
@@ -647,8 +660,7 @@ function reconcileDesktopPresentation() {
 
 function startTrayPresentationReconcile() {
   clearInterval(trayReconcileInterval);
-  reconcileDesktopPresentation();
-  trayReconcileInterval = setInterval(() => reconcileDesktopPresentation(), 260);
+  // Leave the Explorer composition alone while the native menu is open.
 }
 
 function stopTrayPresentationReconcile() {
@@ -744,6 +756,7 @@ function setDesktopWindowMode(hosted, display) {
           await new Promise(resolve => setTimeout(resolve, 500));
         }
       }
+      window.setIgnoreMouseEvents(securityLocked ? false : state.displaySettings?.dragClock !== true, { forward: true });
     }
     else await desktopHost.detach(window);
     desktopWindowHosted = hosted;
@@ -822,6 +835,14 @@ function notify() {
 }
 
 function setupIPC() {
+  ipcMain.handle('dayan:clock-drag-mode', (event, enabled) => {
+    if (!trusted(event) || securityLocked || typeof enabled !== 'boolean') return false;
+    state.displaySettings = { ...normalizeDisplaySettings(state.displaySettings), dragClock: enabled };
+    if (desktopWindowHosted && mainWindow && !mainWindow.isDestroyed()) mainWindow.setIgnoreMouseEvents(!enabled, { forward: true });
+    flushState();
+    broadcastPreferences(event.sender);
+    return true;
+  });
   ipcMain.handle('dayan:editor-ready', event => presentationEditor.ready(event.sender));
   ipcMain.handle('dayan:editor-close', event => { if (event.sender === presentationEditor.window?.webContents) presentationEditor.close(); });
   ipcMain.handle('dayan:lock-shortcut', (event, value) => {
@@ -849,6 +870,7 @@ function setupIPC() {
     if (payload.displaySettings && typeof payload.displaySettings === 'object') state.displaySettings = normalizeDisplaySettings(payload.displaySettings);
     if (payload.windowLayers && typeof payload.windowLayers === 'object') state.windowLayers = normalizeWindowLayers(payload.windowLayers);
     if (typeof payload.autoStart === 'boolean') state.autoStart = applyAutoStart(payload.autoStart);
+    if (desktopWindowHosted && mainWindow && !mainWindow.isDestroyed()) mainWindow.setIgnoreMouseEvents(securityLocked ? false : state.displaySettings.dragClock !== true, { forward: true });
     if (isPresentationFullscreen()) applyPresentationWindow(); else restorePinnedState();
     flushState();
     broadcastPreferences(event.sender);
@@ -862,6 +884,7 @@ function setupIPC() {
     if (payload.displaySettings && typeof payload.displaySettings === 'object') state.displaySettings = normalizeDisplaySettings(payload.displaySettings);
     if (payload.windowLayers && typeof payload.windowLayers === 'object') state.windowLayers = normalizeWindowLayers(payload.windowLayers);
     if (typeof payload.autoStart === 'boolean') state.autoStart = applyAutoStart(payload.autoStart);
+    if (desktopWindowHosted && mainWindow && !mainWindow.isDestroyed()) mainWindow.setIgnoreMouseEvents(securityLocked ? false : state.displaySettings.dragClock !== true, { forward: true });
     if (isPresentationFullscreen()) applyPresentationWindow(); else restorePinnedState();
     flushState();broadcastPreferences(event.sender);event.returnValue = true;
   });
@@ -872,7 +895,7 @@ function setupIPC() {
     return { ok: true, enabled: state.autoStart };
   });
   ipcMain.handle('dayan:update-ready', event => {
-    if (event.sender === updateWindow?.webContents) return { available:Boolean(updateInfo), ...updateInfo };
+    if (event.sender === updateWindow?.webContents) return { available:Boolean(updateInfo), ...updateInfo, busy:updateBusy, progress:updateProgress };
     if (!trusted(event)) return null;
     if (!rendererReady) {
       rendererReady = true;
